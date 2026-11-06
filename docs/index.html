@@ -157,6 +157,7 @@ figcaption{font-size:13px;color:var(--muted);margin-top:4px}
 .medrow{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:4px 4px 4px 4px;background:var(--surface)}
 .medrow.on{border-color:var(--accent);background:var(--accent-soft)}
 .medname{flex:1;min-width:0;border:0;background:transparent;justify-content:flex-start;text-align:left;font-size:15px;padding:8px 10px;min-height:44px;border-radius:8px;display:flex;flex-direction:column;align-items:flex-start;gap:0}
+.medcat{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:6px}
 .medmain{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start}
 .medmain .medname{flex:none;width:100%}
 .medday{min-height:28px;padding:2px 10px;margin:0 0 4px 6px;font-size:12px;font-weight:700;border:0;background:transparent;color:var(--accent);border-radius:999px}
@@ -580,12 +581,12 @@ function example() {
 async function load() {
   await store.ready();
   try { patients = await store.all(); } catch { patients = []; }
-  let seeded = false; try { seeded = localStorage.getItem("wpl-seeded") === "1"; } catch {}
-  if (!patients.length && !seeded) {
-    const ex = example(); patients = [ex];
-    try { await store.put(ex); localStorage.setItem("wpl-seeded", "1"); } catch {}
-  }
+  // remove the old sample patient and any record left empty
+  for (const p of patients.filter(p => p.example || isEmptyRecord(p))) { try { await store.del(p.id); } catch {} }
+  patients = patients.filter(p => !p.example && !isEmptyRecord(p));
 }
+const isEmptyRecord = p => !p.name && !p.mrn && !p.age && !p.sex && !p.ward && !p.diagnosis && !p.comorbid && !p.treatment && !p.plan
+  && !(p.meds || []).length && !(p.ct || []).length && !(p.labs || []).length && !(p.photos || []).length && !p.sticker && !p.dispo;
 async function save(p) {
   p.updated = new Date().toISOString();
   const i = patients.findIndex(x => x.id === p.id); if (i < 0) patients.push(p); else patients[i] = p;
@@ -611,6 +612,8 @@ const mainWard = () => { try { return localStorage.getItem("wpl-main-ward") || "
 const wardGroup = p => !(p.ward || "").trim() ? "none" : new RegExp("(^|\\D)" + mainWard().replace(/[^\w]/g, "") + "(\\D|$)", "i").test(p.ward) ? "in" : "out";
 const isPast = p => p.dispo === "discharged" || p.dispo === "transferred";
 function renderList(past = false) {
+  const empties = patients.filter(isEmptyRecord);
+  if (empties.length) { patients = patients.filter(p => !isEmptyRecord(p)); empties.forEach(p => store.del(p.id).catch(() => {})); }
   $("#topbar").innerHTML = past
     ? `<button class="ghost" id="back" aria-label="Back to settings">${icon("back")}</button><p class="brand">Past patients</p>`
     : `<p class="brand">Ward Patient Log</p><button class="primary" id="new">${icon("plus")}New patient</button>`;
@@ -628,7 +631,8 @@ function renderList(past = false) {
     ${past ? "" : `<button id="wr" style="margin-top:12px">${icon("sheet")}Ward round list</button>
     <div class="ho" id="wrpanel" hidden></div>`}
     <div id="plist"></div>
-    ${past ? "" : `<button class="pastbtn" id="toopts">${icon("gear")}<span class="grow">Settings</span>${icon("chev")}</button>`}`;
+    ${past ? "" : `<button class="pastbtn" id="toopts">${icon("gear")}<span class="grow">Settings</span>${icon("chev")}</button>
+    <div class="row" style="justify-content:center;margin-top:14px"><button class="ghost" id="refresh" style="font-size:13px;min-height:36px;color:var(--muted)">↻ Refresh</button></div>`}`;
   const draw = () => {
     const q = filter.q.toLowerCase();
     const base = past ? pastList : active.filter(p => filter.d === "all" || wardGroup(p) === filter.d);
@@ -654,7 +658,8 @@ function renderList(past = false) {
   $("#q").oninput = e => { filter.q = e.target.value; draw(); };
   document.querySelectorAll('input[name="df"]').forEach(r => r.onchange = e => { filter.d = e.target.value; draw(); });
   if (!past) $("#wr").onclick = () => wardRound(active);
-  if (!past) { $("#toopts").onclick = () => go("options"); }
+  if (!past) { $("#toopts").onclick = () => go("options");
+    $("#refresh").onclick = async () => { try { const r = await navigator.serviceWorker?.getRegistration?.(); await r?.update(); } catch {} location.reload(); }; }
 }
 /* ---------- settings ---------- */
 function renderOptions() {
@@ -669,10 +674,11 @@ function renderOptions() {
     </ul>
     <h2 class="ghead" style="font-size:16px">Configuration</h2>
     <ul class="olist" style="margin-top:8px">
-      <li><button class="orow" id="o-meds" aria-expanded="false">${icon("plus")}<span class="grow">Medicines<small>${medButtons().length} tap-to-add buttons</small></span>${icon("chev")}</button>
+      <li><button class="orow" id="o-meds" aria-expanded="false">${icon("plus")}<span class="grow">Medicines<small></small></span>${icon("chev")}</button>
         <div class="opanel" id="o-medpanel" hidden>
-          <ul class="medlist" id="o-medlist"></ul>
-          <div class="row"><input id="o-mednew" class="grow" placeholder="e.g. Ceftriaxone 1g IV daily" aria-label="New medicine"><button id="o-medadd">${icon("plus")}Add</button></div>
+          ${["essential", "supportive"].map(c => `<div class="medcat">${c === "essential" ? "Essential (included in handovers)" : "Supportive (not in handovers)"}</div>
+          <ul class="medlist" id="o-list-${c}"></ul>
+          <div class="row"><input id="o-new-${c}" class="grow" placeholder="${c === "essential" ? "e.g. Ceftriaxone 1g IV" : "e.g. Paracetamol 1g PO"}" aria-label="New ${c} medicine"><button data-add="${c}">${icon("plus")}Add</button></div>`).join("")}
         </div></li>
       <li><button class="orow" id="o-pw">${icon("lock")}<span class="grow">Backup password<small>${backupPassword() ? "On: backups are encrypted" : "Off: backups are not encrypted"}</small></span>${icon("chev")}</button></li>
       <li><div class="orow">${icon("sheet")}<span class="grow">Main ward<small>Patients in this ward are inpatients; any other ward is an outlier</small></span>
@@ -696,14 +702,21 @@ function renderOptions() {
   $("#o-ward").onchange = e => { const v = e.target.value.trim() || "267"; try { localStorage.setItem("wpl-main-ward", v); } catch {} toast("Main ward set to " + v); };
   const drawMedList = () => {
     const list = medButtons();
-    $("#o-medlist").innerHTML = list.map((m, i) => `<li><span>${esc(m)}</span><button class="ghost danger" data-i="${i}" aria-label="Delete ${esc(m)}">Delete</button></li>`).join("") || `<li><span class="hint">No medicines yet.</span></li>`;
-    $("#o-medlist").querySelectorAll("button").forEach(x => x.onclick = () => { saveMedButtons(list.filter((_, j) => j !== +x.dataset.i)); drawMedList(); });
-    $("#o-meds small").textContent = `${medButtons().length} tap-to-add buttons`;
+    for (const c of ["essential", "supportive"]) {
+      const el = $("#o-list-" + c), items = list.map((m, i) => [m, i]).filter(([m]) => m.cat === c);
+      el.innerHTML = items.map(([m, i]) => `<li><span>${esc(m.name)}</span><button class="ghost" data-move="${i}" aria-label="Move ${esc(m.name)} to ${c === "essential" ? "supportive" : "essential"}">${c === "essential" ? "↓ Supportive" : "↑ Essential"}</button><button class="ghost danger" data-del="${i}" aria-label="Delete ${esc(m.name)}">Delete</button></li>`).join("") || `<li><span class="hint">None yet.</span></li>`;
+    }
+    $("#o-medpanel").querySelectorAll("[data-del]").forEach(x => x.onclick = () => { saveMedButtons(list.filter((_, j) => j !== +x.dataset.del)); drawMedList(); });
+    $("#o-medpanel").querySelectorAll("[data-move]").forEach(x => x.onclick = () => { const l = list.slice(), m = l[+x.dataset.move]; l[+x.dataset.move] = { name: m.name, cat: m.cat === "essential" ? "supportive" : "essential" }; saveMedButtons(l); drawMedList(); });
+    const e = list.filter(m => m.cat === "essential").length;
+    $("#o-meds small").textContent = `${e} essential, ${list.length - e} supportive`;
   };
+  drawMedList();
   $("#o-meds").onclick = () => { const pnl = $("#o-medpanel"); pnl.hidden = !pnl.hidden; $("#o-meds").setAttribute("aria-expanded", String(!pnl.hidden)); if (!pnl.hidden) drawMedList(); };
-  const add = () => { const v = $("#o-mednew").value.trim(); if (!v) return; const l = medButtons(); if (!l.includes(v)) saveMedButtons([...l, v]); $("#o-mednew").value = ""; drawMedList(); $("#o-mednew").focus(); };
-  $("#o-medadd").onclick = add;
-  $("#o-mednew").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); add(); } };
+  const add = c => { const inp = $("#o-new-" + c), v = inp.value.trim(); if (!v) return; const l = medButtons();
+    if (!l.some(m => m.name.toLowerCase() === v.toLowerCase())) saveMedButtons([...l, { name: v, cat: c }]); inp.value = ""; drawMedList(); inp.focus(); };
+  $("#o-medpanel").querySelectorAll("[data-add]").forEach(b => b.onclick = () => add(b.dataset.add));
+  ["essential", "supportive"].forEach(c => $("#o-new-" + c).onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); add(c); } });
 }
 
 /* ---------- backups: a file the user keeps in a folder of their choice ---------- */
@@ -816,13 +829,13 @@ function renderEdit(id) {
   $("#app").innerHTML = `
   <section class="sec" aria-labelledby="h-det">
     <div class="sec-h"><h2 id="h-det">Patient details</h2>
-      <label class="btn primary filebtn">${icon("cam")}Photograph sticker<input type="file" id="stk" accept="image/*" capture="environment"></label></div>
+      <label class="btn primary filebtn">${icon("cam")}Sticker<input type="file" id="stk" accept="image/*"></label></div>
     <p class="hint">Take a clear, close photo of the patient label. The fields fill in automatically; check each one.</p>
     <div class="status" id="stk-st"></div>
     ${p.sticker ? `<div class="thumbs"><div class="thumb"><img src="${p.sticker}" alt="Sticker photo"></div></div>` : ""}
     ${field("name", "Name and surname", p.name)}
-    <div class="grid2">${field("mrn", "File no. (PMI)", p.mrn, 'class="mono" inputmode="numeric"')}${field("age", "Age", p.age || ageFrom(p.dob), 'placeholder="e.g. 41y"')}</div>
-    <div class="grid2"><label class="f"><span>Gender</span><select id="sex" data-k="sex"><option value=""></option><option ${p.sex==="F"?"selected":""} value="F">Female</option><option ${p.sex==="M"?"selected":""} value="M">Male</option><option ${p.sex==="X"?"selected":""} value="X">Other</option></select></label>${field("ward", "Ward / bed", p.ward)}</div>
+    <div class="grid2">${field("mrn", "File no. (PMI)", p.mrn, 'class="mono" inputmode="numeric"')}${field("age", "Age", p.age || ageFrom(p.dob))}</div>
+    <div class="grid2"><label class="f"><span>Gender</span><select id="sex" data-k="sex"><option value=""></option><option ${p.sex==="M"?"selected":""} value="M">Male</option><option ${p.sex==="F"?"selected":""} value="F">Female</option></select></label>${field("ward", "Ward / bed", p.ward)}</div>
     ${field("admitted", "Admitted", p.admitted, 'type="date"')}
     ${p.stickerText ? `<details><summary>Text read from sticker</summary><div class="sticker">${esc(p.stickerText)}</div></details>` : ""}
   </section>
@@ -985,11 +998,14 @@ function renderEdit(id) {
   // medicines
   patientMeds(p);
   const drawMeds = () => {
-    const names = [...medButtons()];
+    const btns = medButtons(), names = btns.map(b => b.name);
     p.meds.forEach(m => { if (!names.includes(m.name)) names.push(m.name); }); // keep meds whose button was deleted
+    const order = [...names.filter(n => medCat(n) === "essential"), ...names.filter(n => medCat(n) === "supportive")];
+    names.splice(0, names.length, ...order);
     $("#meds").innerHTML = names.length ? names.map((n, i) => {
       const m = p.meds.find(x => x.name === n);
-      return `<div class="medrow${m ? " on" : ""}" data-mi="${i}">
+      const head = (i === 0 || medCat(names[i - 1]) !== medCat(n)) ? `<div class="medcat">${medCat(n) === "essential" ? "Essential" : "Supportive"}</div>` : "";
+      return `${head}<div class="medrow${m ? " on" : ""}" data-mi="${i}">
         <div class="medmain"><button class="medname" aria-pressed="${!!m}">${esc(n)}</button>${m ? `<button class="medday" aria-label="Change day number for ${esc(n)}">Day ${medDay(m)} <span aria-hidden="true">✎</span></button>` : ""}</div>
         <div class="freqs" role="radiogroup" aria-label="Frequency for ${esc(n)}">${FREQS.map(f => `<button class="freq" data-f="${f}" aria-pressed="${!!m && m.freq === f}">${f}</button>`).join("")}</div>
       </div>`; }).join("")
@@ -1080,10 +1096,20 @@ const MED_DEFAULTS = ["Paracetamol 1g PO", "Ibuprofen 400mg PO", "Tramadol 50mg 
 const OLD_DEFAULTS = ["Paracetamol 1g PO 6-hourly", "Ibuprofen 400mg PO 8-hourly", "Tramadol 50mg PO 6-hourly PRN", "Morphine 5mg IV 4-hourly PRN",
   "Ceftriaxone 1g IV daily", "Metronidazole 500mg IV 8-hourly", "Enoxaparin 40mg SC daily", "Omeprazole 40mg IV daily"];
 const FREQS = ["dly", "bd", "tds", "qid"];
-function medButtons() {
-  try { const v = JSON.parse(localStorage.getItem("wpl-meds")); if (Array.isArray(v)) return v.map(m => { const i = OLD_DEFAULTS.indexOf(m); return i >= 0 ? MED_DEFAULTS[i] : m; }); } catch {}
-  return medButtons._mem || MED_DEFAULTS.slice();
+// Medicine buttons: {name, cat: "essential" | "supportive"}. Only essential medicines go into handovers.
+const SUPPORTIVE_RE = /paracetamol|ibuprofen|diclofenac|tramadol|morphine|codeine|omeprazole|pantoprazole|metoclopramide|ondansetron|lactulose|senna|laxative|vitamin|multivit|thiamine|tears|lubricant/i;
+const defaultCat = name => SUPPORTIVE_RE.test(name) ? "supportive" : "essential";
+function normButtons(v) {
+  return v.map(m => {
+    if (typeof m === "string") { const i = OLD_DEFAULTS.indexOf(m); const name = i >= 0 ? MED_DEFAULTS[i] : m; return { name, cat: defaultCat(name) }; }
+    return { name: m.name, cat: m.cat === "supportive" ? "supportive" : "essential" };
+  });
 }
+function medButtons() {
+  try { const v = JSON.parse(localStorage.getItem("wpl-meds")); if (Array.isArray(v)) return normButtons(v); } catch {}
+  return medButtons._mem || normButtons(MED_DEFAULTS);
+}
+const medCat = name => (medButtons().find(b => b.name === name) || {}).cat || defaultCat(name);
 // A patient's medicine: {name, freq: "dly"|"bd"|"tds"|"qid"|"", start: "YYYY-MM-DD"}
 const todayISO = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
 function patientMeds(p) {
@@ -1095,7 +1121,7 @@ function medDay(m) {
   return Math.max(1, Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - start) / 864e5) + 1);
 }
 const medText = m => `${m.name}${m.freq ? " " + m.freq : ""}, Day ${medDay(m)}`;
-function saveMedButtons(list) { medButtons._mem = list; try { localStorage.setItem("wpl-meds", JSON.stringify(list)); } catch {} }
+function saveMedButtons(list) { list = normButtons(list); medButtons._mem = list; try { localStorage.setItem("wpl-meds", JSON.stringify(list)); } catch {} }
 
 async function pdfPages(file, max) {
   pdfjsLib.GlobalWorkerOptions.workerSrc = abs("lib/pdf.worker.min.js");
@@ -1188,15 +1214,24 @@ function wardRound(active) {
 }
 
 /* ---------- handover (written on the device from the record, no AI service) ---------- */
+function admDay(p) {
+  if (!p.admitted) return 0;
+  const [y, mo, d] = p.admitted.split("-").map(Number), now = new Date();
+  return Math.max(1, Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(y, mo - 1, d)) / 864e5) + 1);
+}
+const initials = name => (name || "").split(/[\s,]+/).filter(Boolean).map(w => w[0].toUpperCase()).join("");
 function handover(p, opts = {}) {
   const sentence = s => { s = (s || "").trim().replace(/\s+/g, " "); if (!s) return ""; s = s[0].toUpperCase() + s.slice(1); return /[.!?]$/.test(s) ? s : s + "."; };
   const lowerFirst = s => { s = (s || "").trim().replace(/[.\s]+$/, ""); return s && !/^[A-Z]{2}/.test(s) ? s[0].toLowerCase() + s.slice(1) : s; };
   const yrs = parseInt(ageOf(p), 10);
-  const who = [isNaN(yrs) ? "" : yrs + "y old", { M: "male", F: "female" }[p.sex] || "patient"].filter(Boolean).join(" ");
+  const who = [isNaN(yrs) ? "" : yrs + "y", { M: "male", F: "female" }[p.sex] || ""].filter(Boolean).join(" ");
+  const title = { M: "Mr", F: "Ms" }[p.sex] || "";
+  const head = [who, p.name ? [title, initials(p.name)].filter(Boolean).join(" ") : "", admDay(p) ? "day " + admDay(p) + " of admission" : ""].filter(Boolean).join(" - ");
   const parts = [];
-  parts.push(sentence(`${who}${p.name ? " (" + p.name + (p.mrn ? ", PMI " + p.mrn : "") + ")" : ""}, ${p.comorbid ? "known with " + lowerFirst(p.comorbid) : "no comorbids"}${p.diagnosis ? ", with " + lowerFirst(p.diagnosis) : ""}`));
-  if (p.ward && opts.ward !== false) parts.push(sentence(`${wardGroup(p) === "in" ? "Inpatient in ward" : "Outlier in ward"} ${p.ward}${p.admitted ? ", admitted " + fmtDate(p.admitted) : ""}`));
-  const meds = patientMeds(p).map(medText).join("; ");
+  if (head) parts.push(head + ".");
+  parts.push(sentence(`${p.comorbid ? "Known with " + lowerFirst(p.comorbid) : "No comorbids"}${p.diagnosis ? ", with " + lowerFirst(p.diagnosis) : ""}`));
+  if (p.ward && opts.ward !== false) parts.push(sentence(`${wardGroup(p) === "in" ? "Inpatient in ward" : "Outlier in ward"} ${p.ward}`));
+  const meds = patientMeds(p).filter(m => medCat(m.name) === "essential").map(medText).join("; ");
   if (meds || p.treatment) parts.push(sentence(`Currently on ${[meds, lowerFirst(p.treatment)].filter(Boolean).join("; ")}`.replace(/^Currently on ;?\s*/, "Currently on ")));
   const ct = p.ct.filter(c => c.conclusion).at(-1);
   if (ct) parts.push(sentence(`${ct.title && ct.title !== "CT" ? ct.title : "CT"}${ct.date ? " (" + fmtDate(ct.date) + ")" : ""}: ${lowerFirst(ct.conclusion.replace(/\n+/g, " "))}`));
@@ -1211,7 +1246,7 @@ function handover(p, opts = {}) {
 function summaryText(p) {
   const L = [];
   L.push(`${p.name || "Unnamed"}  ${[ageOf(p), p.sex].filter(Boolean).join(" ")}`);
-  L.push(`PMI ${p.mrn || "-"}${p.ward ? "  " + p.ward : ""}${p.admitted ? "  Admitted " + fmtDate(p.admitted) : ""}`);
+  L.push(`PMI ${p.mrn || "-"}${p.ward ? "  " + p.ward : ""}${p.admitted ? "  Admitted " + fmtDate(p.admitted) + " (day " + admDay(p) + " of admission)" : ""}`);
   L.push("", "DIAGNOSIS", p.diagnosis || "-", "Comorbidities: " + (p.comorbid || "none"), "", "TREATMENT", p.treatment || "-");
   if (patientMeds(p).length) L.push(...p.meds.map(m => "- " + medText(m)));
   if (p.plan) L.push("", "PLAN", p.plan);
@@ -1240,7 +1275,7 @@ function renderSummary(id) {
 
         ${p.ward ? `<div><dt>Ward</dt><dd>${esc(p.ward)} · ${wardGroup(p) === "in" ? "Inpatient" : "Outlier"}</dd></div>` : ""}
 
-        ${p.admitted ? `<div><dt>Admitted</dt><dd>${esc(fmtDate(p.admitted))}</dd></div>` : ""}
+        ${p.admitted ? `<div><dt>Admitted</dt><dd>${esc(fmtDate(p.admitted))} · day ${admDay(p)} of admission</dd></div>` : ""}
       </dl>
     </div>
     <div class="sheet-b">
