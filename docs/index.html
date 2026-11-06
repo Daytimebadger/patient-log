@@ -98,6 +98,8 @@ label.f span{letter-spacing:.03em}
 .status{font-size:14px;color:var(--muted);display:flex;gap:8px;align-items:center;min-height:20px}
 .status.err{color:var(--red)}
 .status.ok{color:var(--green)}
+.unsure{box-shadow:0 0 0 2px #f59e0b;border-color:#f59e0b!important}
+.status.warn{color:#b45309}
 .bar-p{height:4px;background:var(--sunk);border-radius:4px;overflow:hidden;flex:1;max-width:160px}
 .bar-p i{display:block;height:100%;background:var(--accent);width:0;transition:width .2s}
 .sticker{background:var(--label);border:1px solid var(--label-line);border-radius:6px;padding:10px 12px;font-family:var(--f-mono);font-size:13px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto}
@@ -320,7 +322,7 @@ function ocrWorker() {
   }
   return ocrWorkerP;
 }
-async function ocrImage(source, onProgress, psm = "3") {
+async function ocrImage(source, onProgress, psm = "3", whole = false) {
   ocrProgress = m => {
     if (!onProgress) return;
     const step = m.status === "recognizing text" ? "Reading text" : "Loading text reader";
@@ -329,7 +331,7 @@ async function ocrImage(source, onProgress, psm = "3") {
   const w = await ocrWorker();
   await w.setParameters({ tessedit_pageseg_mode: psm });
   const { data } = await w.recognize(source);
-  ocrProgress = null; return data.text || "";
+  ocrProgress = null; return whole ? data : (data.text || "");
 }
 function prepForOcr(img) {
   // upscale small photos, downscale huge ones, grayscale + contrast stretch
@@ -353,7 +355,7 @@ function prepForOcr(img) {
 function decode1D(canvas) {
   const hints = new Map();
   hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39, ZXing.BarcodeFormat.ITF, ZXing.BarcodeFormat.CODE_93, ZXing.BarcodeFormat.CODABAR, ZXing.BarcodeFormat.EAN_13]);
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.CODE_128]);
   const rd = new ZXing.MultiFormatReader(); rd.setHints(hints);
   try { return rd.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(canvas)))); }
   catch { return null; }
@@ -361,24 +363,135 @@ function decode1D(canvas) {
 async function findBarcode(img) {
   // Scan the photo in overlapping strips: a small sticker barcode is easy to miss in a whole-page scan.
   if (typeof ZXing === "undefined") return null;
-  const big = drawScaled(img, 2000), W = big.width, H = big.height;
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height, up = Math.max(iw, ih) < 2400 ? 2400 / Math.max(iw, ih) : 1;
+  const big = up > 1 ? (() => { const c = document.createElement("canvas"); c.width = Math.round(iw * up); c.height = Math.round(ih * up);
+    const g = c.getContext("2d"); g.imageSmoothingQuality = "high"; g.drawImage(img, 0, 0, c.width, c.height); return c; })() : drawScaled(img, 2400);
+  const W = big.width, H = big.height;
   const tries = [[1, 1]];
-  for (const [fw, fh] of [[0.6, 0.14], [0.45, 0.1], [0.35, 0.06], [0.5, 0.08]]) {
+  for (const [fw, fh] of [[0.6, 0.14], [0.45, 0.1], [0.35, 0.06], [0.5, 0.08], [0.25, 0.05], [0.3, 0.09]]) {
     for (let y = 0; y + fh <= 1.0001; y += fh / 2) for (let x = 0; x + fw <= 1.0001; x += fw / 3) tries.push([fw, fh, x, y]);
   }
+  let first = null; const hits = new Map();
   for (const [fw, fh, fx = 0, fy = 0] of tries) {
     const cw = Math.round(W * fw), ch = Math.round(H * fh), cx = Math.round(W * fx), cy = Math.round(H * fy);
     const c = document.createElement("canvas"); c.width = cw; c.height = ch;
     c.getContext("2d").drawImage(big, cx, cy, cw, ch, 0, 0, cw, ch);
     const r = decode1D(c);
-    if (r && /\d{4,}/.test(r.getText())) {
+    if (r && /^0+[1-9]\d{5,9}$/.test(r.getText())) { // PMI barcodes are the number padded with zeros
+      // a blurred or partly hidden barcode can occasionally decode to the wrong number, so want two matching reads
       const pts = r.getResultPoints() || [];
       const xs = pts.map(p => p.getX() + cx), ys = pts.map(p => p.getY() + cy);
-      return { text: r.getText(), canvas: big, x0: Math.min(...xs), x1: Math.max(...xs), y: ys.reduce((a, b) => a + b, 0) / (ys.length || 1) };
+      const hit = { text: r.getText(), canvas: big, x0: Math.min(...xs), x1: Math.max(...xs), y: ys.reduce((a, b) => a + b, 0) / (ys.length || 1) };
+      const n = (hits.get(hit.text) || 0) + 1; hits.set(hit.text, n);
+      if (n >= 2 || fw === 1) return { ...(first && first.text === hit.text ? first : hit), confirmed: true };
+      if (!first) first = hit;
     }
     await new Promise(r => setTimeout(r)); // keep the page responsive
   }
+  return first ? { ...first, confirmed: false } : null;
+}
+function rotateCanvas(src, deg) {
+  const c = document.createElement("canvas"), q = deg % 180 !== 0;
+  c.width = q ? src.height : src.width; c.height = q ? src.width : src.height;
+  const g = c.getContext("2d"); g.translate(c.width / 2, c.height / 2); g.rotate(deg * Math.PI / 180);
+  g.drawImage(src, -src.width / 2, -src.height / 2); return c;
+}
+function flipBarcode(bc) { // same barcode, viewed upside down
+  const c = rotateCanvas(bc.canvas, 180), W = c.width, H = c.height;
+  return { text: bc.text, canvas: c, x0: W - bc.x1, x1: W - bc.x0, y: H - bc.y };
+}
+async function findBarcodeAnyWay(img) {
+  // stickers are often photographed sideways; try upright, then turned either way
+  const base = drawScaled(img, 2400);
+  let maybe = null;
+  for (const deg of [0, 270, 90]) {
+    const bc = await findBarcode(deg ? rotateCanvas(base, deg) : base);
+    if (bc && bc.confirmed) return bc;
+    if (bc && !maybe) maybe = bc;
+  }
+  return maybe;
+}
+function luhnOk(n) { let s = 0; for (let i = 0; i < n.length; i++) { let d = +n[n.length - 1 - i]; if (i % 2) { d *= 2; if (d > 9) d -= 9; } s += d; } return s % 10 === 0; }
+function fromSAId(text) {
+  // South African ID number (YYMMDD SSSS C A Z): gives date of birth and gender, with a check digit
+  const m = text.replace(/[ ]/g, "").match(/(?:^|\D)(\d{13})(?!\d)/g) || [];
+  for (const raw of m) {
+    const n = raw.replace(/\D/g, ""); if (!luhnOk(n)) continue;
+    const yy = +n.slice(0, 2), mm = +n.slice(2, 4), dd = +n.slice(4, 6);
+    if (mm < 1 || mm > 12 || dd < 1 || dd > 31) continue;
+    const y = yy + (yy > new Date().getFullYear() % 100 ? 1900 : 2000);
+    return { dob: `${String(dd).padStart(2, "0")}/${String(mm).padStart(2, "0")}/${y}`, sex: +n.slice(6, 10) >= 5000 ? "M" : "F" };
+  }
   return null;
+}
+function grayCanvas(src) {
+  const c = document.createElement("canvas"); c.width = src.width; c.height = src.height;
+  const g = c.getContext("2d"); g.filter = "grayscale(1) contrast(1.6)"; g.drawImage(src, 0, 0); return c;
+}
+const normName = n => (n || "").toUpperCase().replace(/[^A-Z]/g, "");
+async function readSticker(img, prog) {
+  // Several independent readings of the same label; a field is trusted when readings agree.
+  prog("Looking for the barcode", 0.1);
+  const bc = await findBarcodeAnyWay(img);
+  const reads = []; let text = "";
+  if (bc) {
+    for (const b of [bc, flipBarcode(bc)]) {
+      const crop = labelCrop(b); let good = false;
+      for (const [v, k] of [[binarize(crop), 0.8], [binarize(crop, 0.88), 0.88], [grayCanvas(crop), 0]]) {
+        const t = await ocrImage(v, prog, "6"), r = parseSticker(t);
+        r._w = 2; reads.push(r); text += t.trim() + "\n\n";
+        if (r._nameSrc === "label" || r.age) good = true;
+      }
+      if (good) break;
+    }
+  }
+  const src = prepForOcr(bc ? bc.canvas : img);
+  const fd = await ocrImage(src, prog, "3", true), full = fd.text || "";
+  const fr = parseSticker(full); fr._w = 1; reads.push(fr); text += full;
+  if (!bc) { // no barcode: find the printed "PMI" line and read that part of the label closely, a few ways
+    const line = (fd.lines || []).find(l => /P\s?M\s?[I1l|]\s*[:;.]/i.test(l.text) && !/OLD/i.test(l.text));
+    if (line) {
+      const b = line.bbox, h = b.y1 - b.y0, x = Math.max(0, b.x0 - h), y = Math.max(0, b.y0 - h * 0.6);
+      const w = Math.min(src.width - x, (b.x1 - b.x0) * 1.15 + h * 2), hh = Math.min(src.height - y, h * 3.4);
+      const c = document.createElement("canvas"), k = Math.min(4, Math.max(1, 1800 / w));
+      c.width = Math.round(w * k); c.height = Math.round(hh * k);
+      const g = c.getContext("2d"); g.imageSmoothingQuality = "high"; g.drawImage(src, x, y, w, hh, 0, 0, c.width, c.height);
+      for (const v of [binarize(c), binarize(c, 0.88), grayCanvas(c)]) {
+        const t = await ocrImage(v, prog, "6"), r = parseSticker(t); r._w = 2; reads.push(r); text = t.trim() + "\n\n" + text;
+      }
+    }
+  }
+  const id = fromSAId(text);
+  // vote per field
+  const got = {}, unsure = [];
+  const vote = (k, norm = v => v) => {
+    const tally = new Map();
+    for (const r of reads) { const v = r[k]; if (!v) continue;
+      const w = k === "name" ? (r._nameSrc === "guess" ? 0.5 : r._w) : r._w;
+      const key = norm(v), t = tally.get(key) || { v, n: 0, hits: 0 }; t.n += w; t.hits++; tally.set(key, t); }
+    const best = [...tally.values()].sort((a, b) => b.n - a.n)[0]; if (!best) return;
+    got[k] = best.v; if (best.hits < 2 || (k === "name" && best.n < 3)) unsure.push(k);
+  };
+  vote("name", normName); vote("sex"); vote("age", v => parseInt(v, 10)); vote("dob");
+  if (got.dob && !unsure.includes("dob")) { // a date of birth read the same way twice beats the printed age
+    const a = parseInt(ageFrom(got.dob), 10);
+    if (!isNaN(a) && parseInt(got.age, 10) !== a) { got.age = a + "y"; const i = unsure.indexOf("age"); if (i >= 0) unsure.splice(i, 1); }
+  }
+  if (id) { // the ID number's check digit makes these reliable
+    got.dob = id.dob; got.sex = id.sex;
+    const a = parseInt(ageFrom(id.dob), 10), lab = (got.age || "").match(/ \d+m$/);
+    got.age = a + "y" + (lab && parseInt(got.age, 10) === a ? lab[0] : "");
+    for (const k of ["dob", "sex", "age"]) { const i = unsure.indexOf(k); if (i >= 0) unsure.splice(i, 1); }
+  }
+  if (bc) { got.mrn = bc.text.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+    const close = (a, b) => a.length === b.length && [...a].filter((c, i) => c === b[i]).length >= a.length - 2;
+    const seen = reads.map(r => r.mrn).filter(Boolean); // printed PMI should match the barcode
+    const agrees = seen.some(m => close(m, got.mrn));
+    if (seen.length ? !agrees : !bc.confirmed) unsure.push("mrn"); }
+  else { vote("mrn"); if (got.mrn && !unsure.includes("mrn")) unsure.push("mrn"); }
+  for (const k of ["ward", "consultant"]) { const r = reads.find(r => r[k]); if (r) got[k] = r[k]; }
+  Object.keys(got).forEach(k => { if (!got[k]) delete got[k]; });
+  return { got, unsure: unsure.filter(k => got[k]), text: (bc ? "Barcode: " + bc.text + "\n\n" : "") + text.trim(), barcode: !!bc };
 }
 function barcodeTop(bc) {
   // walk up from the decoded row while the row still looks like bars (many dark/light flips)
@@ -410,7 +523,7 @@ function labelCrop(bc) {
   return c;
 }
 
-function binarize(src) {
+function binarize(src, thr = 0.8) {
   // local-mean threshold so shadows, label edges and coloured folders don't swamp the text
   const pad = 20, c = document.createElement("canvas"); c.width = src.width + pad * 2; c.height = src.height + pad * 2;
   const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(src, pad, pad);
@@ -421,7 +534,7 @@ function binarize(src) {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const x0 = Math.max(0, x - r), x1 = Math.min(W, x + r + 1), y0 = Math.max(0, y - r), y1 = Math.min(H, y + r + 1);
     const mean = (I[y1*(W+1)+x1] - I[y0*(W+1)+x1] - I[y1*(W+1)+x0] + I[y0*(W+1)+x0]) / ((x1-x0)*(y1-y0));
-    const v = gray[y*W+x] < mean * 0.8 ? 0 : 255, k = (y*W+x)*4; d[k] = d[k+1] = d[k+2] = v; d[k+3] = 255;
+    const v = gray[y*W+x] < mean * thr ? 0 : 255, k = (y*W+x)*4; d[k] = d[k+1] = d[k+2] = v; d[k+3] = 255;
   }
   g.putImageData(im, 0, 0); return c;
 }
@@ -437,17 +550,19 @@ function parseSticker(raw) {
   if (pmiLine) {
     out.mrn = pmiLine.match(/P\s?M\s?[I1l|]\s*[:;.]?\s*0*(\d{4,})/i)[1];
     const nm = pmiLine.match(/\d{4,}\s+(?:(?:Mr|Mrs|Ms|Miss|Mstr|Master|Dr|Prof|Baby|Nr)\.?\s+)?([\p{Lu}'’\-]{2,}\s*,\s*[\p{L}'’\- ]{2,}?)(?=\s{2,}|\s+\d|\s*$)/u);
-    if (nm) out.labelName = nm[1];
+    if (nm) { out.labelName = nm[1]; out._nameSrc = "label"; }
   }
-  if (!out.labelName) { const tm = text.match(/\b(?:Mr|Mrs|Ms|Miss|Mstr|Master|Dr|Prof|Baby)\.?\s+([\p{Lu}'’\-]{2,}\s*,\s*[\p{Lu}'’\- ]{2,}?)(?=\s{2,}|\s+\d|\s*$|\n)/mu); if (tm) out.labelName = tm[1]; }
-  if (!out.labelName) { const mm = text.match(/MEMBER\s*NAME[\s:.]*(?:(?:Mr|Mrs|Ms|Miss|Mstr|Master|Dr|Nr)\.?\s+)?([\p{Lu}'’\-]{2,}\s*,\s*[\p{Lu}'’\- ]{2,})/u); if (mm) out.labelName = mm[1]; }
-  const ag = text.match(/AGE\s*[:;.]?\s*(\d{1,3})(?:\s*\/\s*(\d{1,2}))?/i);
+  if (!out.labelName) { const tm = text.match(/\b(?:Mr|Mrs|Ms|Miss|Mstr|Master|Dr|Prof|Baby)\.?\s+([\p{Lu}'’\-]{2,}\s*,\s*[\p{Lu}'’\- ]{2,}?)(?=\s{2,}|\s+\d|\s*$|\n)/mu); if (tm) { out.labelName = tm[1]; out._nameSrc = "label"; } }
+  if (!out.labelName) { const bm = text.match(/(?:^|\s)([\p{Lu}'’\-]{3,}\s*,\s*[\p{Lu}'’\-]{3,}(?: [\p{Lu}'’\-]{3,}){0,3})(?=\s{2,}|\s+\d|\s*$)/mu);
+    if (bm && !/(STREET|AVENUE|ROAD|DRIVE|JOHANNESBURG|BENONI|SOWETO|PRETORIA)/.test(bm[1])) { out.labelName = bm[1]; out._nameSrc = "member"; } }
+  if (!out.labelName) { const mm = text.match(/MEMBER\s*NAME[\s:.]*(?:(?:Mr|Mrs|Ms|Miss|Mstr|Master|Dr|Nr)\.?\s+)?([\p{Lu}'’\-]{2,}\s*,\s*[\p{Lu}'’\- ]{2,})/u); if (mm) { out.labelName = mm[1]; out._nameSrc = "member"; } }
+  const ag = text.match(/A[GCR]E\s*[:;.]?\s*(\d{1,3})(?:\s*[\/I1l]\s*(\d{1,2}))?\b/i);
   if (ag) out.age = ag[1] + "y" + (ag[2] !== undefined && +ag[2] > 0 ? " " + ag[2] + "m" : "");
   if (!out.mrn) out.mrn = grab(/(?:MRN|Hosp(?:ital)?\.?\s*(?:No\.?|Number|#)|Hosp\s*No|Unit\s*No\.?|URN|PAS\s*(?:No\.?)?|Patient\s*ID|RXN|K\s*No\.?|Case\s*No\.?)[\s:.#]*([A-Z]{0,3}\d[\dA-Z\-]{3,14})/i);
   const datePat = "(\\d{1,2}[\\/.\\-]\\d{1,2}[\\/.\\-]\\d{2,4}|\\d{1,2}[\\s\\-][A-Za-z]{3,9}[\\s\\-]\\d{4})";
   out.dob = grab(new RegExp("(?:DOB|D\\.O\\.B\\.?|Date\\s*of\\s*Birth|Born|Birth\\s*Date)[\\s:.]*" + datePat, "i"));
-  if (!out.dob) { const m = text.match(new RegExp(datePat)); if (m) out.dob = m[1]; }
-  const sx = text.match(/(?:Sex|Gender)[\s:.]*\b(Male|Female|M|F)\b/i) || text.match(/\b(Male|Female)\b/i);
+  if (!out.dob) { const m = text.match(new RegExp("(?:ID|DoB|D0B)[^\\n]{0,4}?" + datePat, "i")); if (m) out.dob = m[1]; }
+  const sx = text.match(/(?:Sex|Gender|NDER)[^\w\n]{0,2}(Male|Female|M|F)\b/i) || text.match(/\b(Male|Female)\b/i);
   if (sx) out.sex = /^m/i.test(sx[1]) ? "M" : "F";
   // Name: explicit label, else "SURNAME, Firstname" line, else first wordy line
   let name = out.labelName || grab(/(?:Patient\s*)?Name[\s:.]+([\p{L}'’\- ,.]{3,60})/iu);
@@ -464,6 +579,8 @@ function parseSticker(raw) {
     const parts = name.split(" "); if (parts.length > 1) name = parts.slice(0, -1).map(titleCase).join(" ") + " " + parts.at(-1);
   }
   out.name = name.trim(); delete out.labelName;
+  if (out.name && !out._nameSrc) out._nameSrc = "guess";
+  if (!out.name) delete out._nameSrc;
   if (out.mrn) out.mrn = out.mrn.replace(/^0+(?=\d)/, "");
   out.ward = grab(/Ward[\s:.]+([A-Za-z0-9' \-]{2,30})/i).split(/\s{2,}|\b(?:Cons|Bed)\b/i)[0].trim();
   out.consultant = grab(/(?:Consultant|Cons\.?)[\s:.]+((?:Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s*[A-Za-z'’\- .]{2,40})/i);
@@ -478,8 +595,9 @@ function parseSticker(raw) {
     }
     out.address = addr.join(", ");
   }
+  if (out.dob) out.dob = out.dob.replace(/([\/.\-])(1[0-8]|16)(\d{2})$/, "$119$3"); // OCR reads 19xx as 18xx/16xx
   const d = parseDob(out.dob || "");
-  if (out.dob && (!d || d > new Date() || d.getFullYear() < 1900)) delete out.dob;
+  if (out.dob && (!d || d > new Date() || d.getFullYear() < 1900 || (out.age && parseInt(ageFrom(out.dob), 10) < 1))) delete out.dob;
   if (out.dob) { // OCR often confuses 3/8 or 1/7 in the age; trust the date of birth when they disagree
     const yrs = parseInt(ageFrom(out.dob), 10), got = parseInt(out.age || "", 10);
     if (!isNaN(yrs) && (isNaN(got) || Math.abs(yrs - got) > 1)) out.age = yrs + "y" + (out.age && / \d+m$/.test(out.age) ? out.age.match(/ \d+m$/)[0] : "");
@@ -895,7 +1013,10 @@ function renderEdit(id) {
   let t;
   const markSaved = () => { $("#saved").textContent = "Saved " + fmtDateTime(p.updated); };
   const autosave = () => { clearTimeout(t); $("#saved").textContent = "Saving…"; t = setTimeout(async () => { await save(p); markSaved(); $(".brand").textContent = p.name || "New patient"; }, 400); };
-  $("#app").querySelectorAll("[data-k]").forEach(el => el.addEventListener("input", () => { p[el.dataset.k] = el.value; autosave(); }));
+  $("#app").querySelectorAll("[data-k]").forEach(el => el.addEventListener("input", () => { p[el.dataset.k] = el.value;
+    if (p.unsure && p.unsure.includes(el.dataset.k)) { p.unsure = p.unsure.filter(k => k !== el.dataset.k); el.classList.remove("unsure"); }
+    autosave(); }));
+  (p.unsure || []).forEach(k => $("#" + k)?.classList.add("unsure"));
   document.querySelectorAll(".dbtn").forEach(btn => btn.onclick = () => {
     const k = btn.dataset.d;
     if (p.dispo === k) { p.dispo = ""; p.dispoDate = ""; $("#dispoDate").value = ""; }
@@ -920,28 +1041,17 @@ function renderEdit(id) {
       prog("Preparing photo", 0);
       const img = await fileToImage(f);
       p.sticker = drawScaled(img, 1200).toDataURL("image/jpeg", 0.85);
-      prog("Looking for the barcode", 0.1);
-      const bc = await findBarcode(img);
-      let text = "", got = {};
-      if (bc) {
-        text = await ocrImage(binarize(labelCrop(bc)), prog, "6");
-        got = parseSticker(text);
-      }
-      if (!got.name || !got.age || !got.sex) { // read the whole photo and fill whatever is still missing
-        const full = await ocrImage(prepForOcr(img), prog);
-        const more = parseSticker(full);
-        for (const k in more) if (!got[k]) got[k] = more[k];
-        text = (text ? text.trim() + "\n\n" : "") + full;
-      }
-      if (bc) got.mrn = bc.text.replace(/\D/g, "").replace(/^0+(?=\d)/, "") || got.mrn;
-      p.stickerText = (bc ? "Barcode: " + bc.text + "\n\n" : "") + text.trim();
-      Object.assign(p, got); await save(p);
+      const res = await readSticker(img, prog), got = res.got;
+      p.stickerText = res.text;
+      Object.assign(p, got); p.unsure = res.unsure; await save(p);
       renderEdit(id);
       const n = Object.keys(got).length, s2 = $("#stk-st");
-      s2.className = n ? "status ok" : "status err";
       const nice = {name:"name", mrn:"PMI", age:"age", sex:"gender", dob:"DOB", ward:"ward", consultant:"consultant", address:"address", nhs:"NHS no."};
-      s2.textContent = n ? `Filled ${Object.keys(got).map(k => nice[k] || k).join(", ")}${bc ? " (PMI read from the barcode)" : ""}. Check them against the label.`
-        : "Couldn't pick out any details. Try a sharper, closer photo, or type them in. The text that was read is below.";
+      const doubt = res.unsure.filter(k => ["name", "mrn", "age", "sex"].includes(k)).map(k => nice[k]);
+      s2.className = !n ? "status err" : doubt.length ? "status warn" : "status ok";
+      s2.textContent = !n ? "Couldn't pick out any details. Try a sharper, closer photo, or type them in. The text that was read is below."
+        : doubt.length ? `Filled the details, but check the ${doubt.length > 1 ? doubt.slice(0, -1).join(", ") + " and " + doubt.at(-1) : doubt[0]} (marked in amber): the reader wasn't sure.${res.barcode ? "" : doubt.includes("PMI") ? " The barcode couldn't be read." : " The barcode couldn't be read, so check the PMI too."}`
+        : `Filled ${["name","mrn","age","sex"].filter(k => got[k]).map(k => nice[k]).join(", ")}. Readings agreed${res.barcode ? " and the PMI came from the barcode" : ""}.`;
     } catch (err) {
       console.error(err); st.className = "status err";
       st.textContent = "The text reader didn't start (" + (err.message || err) + "). You can still type the details in.";
