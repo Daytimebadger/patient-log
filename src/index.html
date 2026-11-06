@@ -612,7 +612,7 @@ function renderList(past = false) {
     ${past ? "" : `<button id="wr" style="margin-top:12px">${icon("sheet")}Ward round list</button>
     <div class="ho" id="wrpanel" hidden></div>`}
     <div id="plist"></div>
-    ${past ? "" : `<button class="pastbtn" id="toopts">${icon("gear")}<span class="grow">Settings</span><span class="hint">Backup, restore, past patients, medicines</span></button>`}`;
+    ${past ? "" : `<button class="pastbtn" id="toopts">${icon("gear")}<span class="grow">Settings</span>${icon("chev")}</button>`}`;
   const draw = () => {
     const q = filter.q.toLowerCase();
     const base = past ? pastList : active.filter(p => filter.d === "all" || wardGroup(p) === filter.d);
