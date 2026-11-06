@@ -1004,8 +1004,7 @@ function renderEdit(id) {
     names.splice(0, names.length, ...order);
     $("#meds").innerHTML = names.length ? names.map((n, i) => {
       const m = p.meds.find(x => x.name === n);
-      const head = (i === 0 || medCat(names[i - 1]) !== medCat(n)) ? `<div class="medcat">${medCat(n) === "essential" ? "Essential" : "Supportive"}</div>` : "";
-      return `${head}<div class="medrow${m ? " on" : ""}" data-mi="${i}">
+      return `<div class="medrow${m ? " on" : ""}" data-mi="${i}">
         <div class="medmain"><button class="medname" aria-pressed="${!!m}">${esc(n)}</button>${m ? `<button class="medday" aria-label="Change day number for ${esc(n)}">Day ${medDay(m)} <span aria-hidden="true">✎</span></button>` : ""}</div>
         <div class="freqs" role="radiogroup" aria-label="Frequency for ${esc(n)}">${FREQS.map(f => `<button class="freq" data-f="${f}" aria-pressed="${!!m && m.freq === f}">${f}</button>`).join("")}</div>
       </div>`; }).join("")
@@ -1226,7 +1225,7 @@ function handover(p, opts = {}) {
   const yrs = parseInt(ageOf(p), 10);
   const who = [isNaN(yrs) ? "" : yrs + "y", { M: "male", F: "female" }[p.sex] || ""].filter(Boolean).join(" ");
   const title = { M: "Mr", F: "Ms" }[p.sex] || "";
-  const head = [who, p.name ? [title, initials(p.name)].filter(Boolean).join(" ") : "", admDay(p) ? "day " + admDay(p) + " of admission" : ""].filter(Boolean).join(" - ");
+  const head = [who, p.name ? [title, p.name.trim()].filter(Boolean).join(" ") : "", admDay(p) ? "day " + admDay(p) + " of admission" : ""].filter(Boolean).join(" - ");
   const parts = [];
   if (head) parts.push(head + ".");
   parts.push(sentence(`${p.comorbid ? "Known with " + lowerFirst(p.comorbid) : "No comorbids"}${p.diagnosis ? ", with " + lowerFirst(p.diagnosis) : ""}`));
