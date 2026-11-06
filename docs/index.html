@@ -149,7 +149,11 @@ figcaption{font-size:13px;color:var(--muted);margin-top:4px}
 .medrow{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:4px 4px 4px 4px;background:var(--surface)}
 .medrow.on{border-color:var(--accent);background:var(--accent-soft)}
 .medname{flex:1;min-width:0;border:0;background:transparent;justify-content:flex-start;text-align:left;font-size:15px;padding:8px 10px;min-height:44px;border-radius:8px;display:flex;flex-direction:column;align-items:flex-start;gap:0}
-.medname small{font-weight:400;font-size:12px;color:var(--accent)}
+.medmain{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start}
+.medmain .medname{flex:none;width:100%}
+.medday{min-height:28px;padding:2px 10px;margin:0 0 4px 6px;font-size:12px;font-weight:700;border:0;background:transparent;color:var(--accent);border-radius:999px}
+.medday:hover{background:var(--surface)}
+.meddayin{width:80px;min-height:32px;padding:4px 8px;margin:0 0 4px 8px;font-size:14px}
 .medrow:not(.on) .medname{font-weight:400}
 .freqs{display:flex;gap:4px;flex:none}
 .freq{min-height:34px;min-width:40px;padding:4px 8px;font-size:13px;border-radius:999px}
@@ -918,7 +922,7 @@ function renderEdit(id) {
     $("#meds").innerHTML = names.length ? names.map((n, i) => {
       const m = p.meds.find(x => x.name === n);
       return `<div class="medrow${m ? " on" : ""}" data-mi="${i}">
-        <button class="medname" aria-pressed="${!!m}">${esc(n)}${m ? `<small>Day ${medDay(m)}</small>` : ""}</button>
+        <div class="medmain"><button class="medname" aria-pressed="${!!m}">${esc(n)}</button>${m ? `<button class="medday" aria-label="Change day number for ${esc(n)}">Day ${medDay(m)} <span aria-hidden="true">✎</span></button>` : ""}</div>
         <div class="freqs" role="radiogroup" aria-label="Frequency for ${esc(n)}">${FREQS.map(f => `<button class="freq" data-f="${f}" aria-pressed="${!!m && m.freq === f}">${f}</button>`).join("")}</div>
       </div>`; }).join("")
       : `<span class="hint">No medicines yet. Add them in Settings › Medicines.</span>`;
@@ -927,6 +931,18 @@ function renderEdit(id) {
       row.querySelector(".medname").onclick = () => {
         p.meds = p.meds.some(x => x.name === n) ? p.meds.filter(x => x.name !== n) : [...p.meds, { name: n, freq: "", start: todayISO() }];
         autosave(); drawMeds();
+      };
+      const dayBtn = row.querySelector(".medday");
+      if (dayBtn) dayBtn.onclick = () => {
+        const m = p.meds.find(x => x.name === n);
+        const inp = document.createElement("input"); inp.type = "number"; inp.min = "1"; inp.max = "365"; inp.inputMode = "numeric";
+        inp.value = medDay(m); inp.className = "meddayin"; inp.setAttribute("aria-label", "Day number for " + n);
+        dayBtn.replaceWith(inp); inp.focus(); inp.select();
+        let done = false;
+        const commit = () => { if (done) return; done = true; const d = Math.max(1, Math.min(365, parseInt(inp.value, 10) || medDay(m)));
+          const t = new Date(); t.setHours(12, 0, 0, 0); t.setDate(t.getDate() - (d - 1));
+          m.start = new Date(t.getTime() - t.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); autosave(); drawMeds(); };
+        inp.onblur = commit; inp.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); commit(); } if (e.key === "Escape") { done = true; drawMeds(); } };
       };
       row.querySelectorAll(".freq").forEach(fb => fb.onclick = () => {
         let m = p.meds.find(x => x.name === n);
