@@ -586,7 +586,11 @@ function renderList(past = false) {
   const counts = { all: active.length, in: active.filter(p => wardGroup(p) === "in").length, out: active.filter(p => wardGroup(p) === "out").length };
   $("#app").innerHTML = `
     ${past ? `<p class="hint" style="margin-top:16px">Discharged and transferred patients. Open a file to read it, or bring the patient back to the active list if they return.</p>`
-      : `<div class="notice">${icon("lock")}<div><b>Stored only in this browser on this device.</b> Nothing is sent to a server, and sticker and report reading happen on the device. Use test data until your information governance team has approved this for real patients.${store.persistent ? "" : " <b>This browser is blocking storage, so records will be lost when you close the page.</b>"}</div></div>`}
+      : `${(() => { const b = backupState(); const old = !b.last || (Date.now() - new Date(b.last)) > 20 * 3600e3;
+          if (b.real && b.changed && old) return `<div class="notice" style="background:var(--amber-soft);color:var(--fg);align-items:center;flex-wrap:wrap">${icon("save")}<div class="grow"><b>${b.last ? "Last backup " + esc(fmtDateTime(b.last)) : "No backup yet"}.</b> ${b.changed} patient${b.changed === 1 ? " has" : "s have"} changed since. Save a backup to a folder on the phone.</div><button class="primary" id="bknow">Back up now</button></div>`;
+          if (!b.real) return `<div class="notice" style="align-items:center;flex-wrap:wrap">${icon("doc")}<div class="grow"><b>Starting fresh?</b> If you have a backup file, restore it to bring your patients back.</div><label class="btn primary filebtn">Restore from backup<input type="file" id="imp2" accept="application/json,.json"></label></div>`;
+          return ""; })()}
+      <div class="notice">${icon("lock")}<div><b>Stored only in this browser on this device.</b> Nothing is sent to a server, and sticker and report reading happen on the device. Use test data until your information governance team has approved this for real patients.${store.persistent ? "" : " <b>This browser is blocking storage, so records will be lost when you close the page.</b>"}</div></div>`}
     <input class="search" id="q" type="search" placeholder="Search name, PMI, diagnosis" value="${esc(filter.q)}" aria-label="Search patients">
     ${past ? "" : `<div class="chips" role="radiogroup" aria-label="Show patients">
       ${[["all", "All"], ["in", "Inpatients"], ["out", "Outliers"]].map(([k, v]) =>
@@ -598,6 +602,7 @@ function renderList(past = false) {
     ${past ? "" : `<button class="pastbtn" id="topast">${icon("doc")}<span class="grow">Past</span><span class="hint">Discharged and transferred</span><span class="mono">${pastList.length}</span></button>
     <div class="row" style="margin-top:16px">
       <button id="exp">${icon("save")}Save a backup file</button>
+      <span class="hint">${(() => { const b = backupState(); return b.last ? "Last backup " + esc(fmtDateTime(b.last)) : "Not backed up yet"; })()}</span>
       <label class="btn filebtn">${icon("doc")}Restore from backup<input type="file" id="imp" accept="application/json,.json"></label>
     </div>`}`;
   const draw = () => {
@@ -625,26 +630,56 @@ function renderList(past = false) {
   $("#q").oninput = e => { filter.q = e.target.value; draw(); };
   document.querySelectorAll('input[name="df"]').forEach(r => r.onchange = e => { filter.d = e.target.value; draw(); });
   if (!past) $("#wr").onclick = () => wardRound(active);
-  if (!past) { $("#topast").onclick = () => go("past"); $("#exp").onclick = exportBackup; $("#imp").onchange = importBackup; }
+  if (!past) { $("#topast").onclick = () => go("past"); $("#exp").onclick = exportBackup; $("#imp").onchange = importBackup;
+    if ($("#bknow")) $("#bknow").onclick = exportBackup; if ($("#imp2")) $("#imp2").onchange = importBackup; }
+}
+/* ---------- backups: a file the user keeps in a folder of their choice ---------- */
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+function backupState() {
+  const last = lsGet("wpl-last-backup");
+  const real = patients.filter(p => !p.example);
+  const changed = real.filter(p => !last || (p.updated || "") > last).length + (+lsGet("wpl-deleted-since") || 0);
+  return { last, changed, real: real.length };
 }
 async function exportBackup() {
-  const data = JSON.stringify({ app: "ward-patient-log", version: 1, exported: new Date().toISOString(), medButtons: medButtons(), patients }, null, 1);
+  const stamp = new Date();
+  const data = JSON.stringify({ app: "ward-patient-log", version: 1, exported: stamp.toISOString(), medButtons: medButtons(), patients: patients.filter(p => !p.example) }, null, 1);
+  const filename = `patient-log-backup-${stamp.toISOString().slice(0,16).replace("T", "_").replace(":", "")}.json`;
+  const done = () => { lsSet("wpl-last-backup", stamp.toISOString()); lsSet("wpl-deleted-since", "0"); toast("Backup saved"); if (!location.hash) renderList(); };
+  // 1. iPhone / Android share sheet: "Save to Files" lets you pick the folder
+  try {
+    const file = new File([data], filename, { type: "application/json" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: "Patient Log backup" }); done(); return;
+    }
+  } catch (e) { if (e && e.name === "AbortError") { toast("Backup not saved"); return; } }
+  // 2. inside claude.ai
   const dl = await (window.claude?.use?.("downloads") ?? null);
-  const filename = `patient-log-backup-${new Date().toISOString().slice(0,10)}.json`;
   if (dl) {
-    try { await dl.save({ filename, data: new Blob([data], {type: "application/json"}) }); toast("Backup saved"); return; }
-    catch (e) { if (e?.code === "user_declined" || e?.code === "declined") return; }
+    try { await dl.save({ filename, data: new Blob([data], {type: "application/json"}) }); done(); return; }
+    catch (e) { if (e?.code === "declined") { toast("Backup not saved"); return; } }
   }
-  try { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([data], {type:"application/json"})); a.download = filename; a.click(); toast("Backup file created"); }
-  catch { toast("This viewer cannot save files"); }
+  // 3. plain browser download
+  try { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([data], {type:"application/json"})); a.download = filename; document.body.appendChild(a); a.click(); a.remove(); done(); }
+  catch { toast("This browser cannot save files"); }
 }
 async function importBackup(e) {
-  const f = e.target.files[0]; if (!f) return;
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
   try {
-    const j = JSON.parse(await f.text()); if (!Array.isArray(j.patients)) throw new Error("not a patient log backup");
+    const j = JSON.parse(await f.text()); if (!Array.isArray(j.patients)) throw new Error("this isn't a Patient Log backup file");
     if (Array.isArray(j.medButtons)) saveMedButtons(j.medButtons);
-    let n = 0; for (const p of j.patients) { if (p && p.id) { await store.put(p); n++; } }
-    patients = await store.all(); toast(`Restored ${n} patient${n === 1 ? "" : "s"}`); renderList();
+    let added = 0, updated = 0, kept = 0;
+    for (const b of j.patients) {
+      if (!b || !b.id) continue;
+      const cur = patients.find(x => x.id === b.id);
+      if (!cur) { await store.put(b); added++; }
+      else if ((b.updated || "") > (cur.updated || "")) { await store.put(b); updated++; }
+      else kept++;
+    }
+    patients = await store.all();
+    toast(`Restored from ${fmtDate(j.exported)}: ${added} added, ${updated} updated${kept ? ", " + kept + " already up to date" : ""}`);
+    renderList();
   } catch (err) { toast("Could not restore: " + err.message); }
 }
 
@@ -739,7 +774,7 @@ function renderEdit(id) {
     $("#delzone").innerHTML = `<div class="confirm">Delete ${esc(p.name || "this patient")} and all their data from this device?
       <button class="danger" id="delyes">Delete</button><button id="delno">Keep</button></div>`;
     $("#delno").onclick = () => renderEdit(id);
-    $("#delyes").onclick = async () => { await store.del(p.id); patients = patients.filter(x => x.id !== p.id); toast("Patient deleted"); go(""); };
+    $("#delyes").onclick = async () => { await store.del(p.id); lsSet("wpl-deleted-since", String((+lsGet("wpl-deleted-since") || 0) + 1)); patients = patients.filter(x => x.id !== p.id); toast("Patient deleted"); go(""); };
   };
 
   // sticker
@@ -1104,5 +1139,14 @@ function renderSummary(id) {
 window.__wpl = { parseSticker, findConclusion };
 load().then(route);
 </script>
-<script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(e => console.warn("offline cache not available", e)));</script>
+<script>
+// Offline + updates: a new version downloads in the background when the app opens online,
+// then the page reloads once to show it. Records are untouched.
+if ("serviceWorker" in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController && !reloading) { reloading = true; location.reload(); } });
+  addEventListener("load", () => navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(r => r.update()).catch(e => console.warn("offline cache not available", e)));
+}
+</script>
 </body></html>
