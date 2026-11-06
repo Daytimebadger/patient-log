@@ -1,0 +1,1097 @@
+<title>Ward Patient Log</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one narrow column built for a phone held in one hand; list -> patient record -> one-page summary */
+:root{
+  --bg:#f3f5f8; --surface:#ffffff; --sunk:#e8ecf2; --line:#d3d9e3;
+  --fg:#16202e; --muted:#5a6678; --accent:#1f4fb8; --accent-ink:#ffffff; --accent-soft:#e3eafa;
+  --amber:#a35a00; --amber-soft:#fdf0dc; --green:#1c7a46; --green-soft:#e0f3e8;
+  --blue:#2357a6; --blue-soft:#e2ecf9; --grey:#566070; --grey-soft:#eceff3;
+  --red:#b3261e; --red-soft:#fbe5e3; --label:#fffdf6; --label-line:#cfc7ad;
+  /* system fonts only: the app makes no requests to font servers */
+  --f-display:"Avenir Next Condensed","Roboto Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-mono:ui-monospace,"SFMono-Regular",Menlo,"Roboto Mono",monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f141c; --surface:#171e29; --sunk:#1f2836; --line:#2c3748;
+  --fg:#e7ecf3; --muted:#9aa6b8; --accent:#7fa3ff; --accent-ink:#0b1220; --accent-soft:#1c2a4a;
+  --amber:#f2b25c; --amber-soft:#3a2a12; --green:#6fd09a; --green-soft:#16301f;
+  --blue:#8db7f5; --blue-soft:#172a44; --grey:#a7b1c0; --grey-soft:#232c39;
+  --red:#ff8a80; --red-soft:#3b1a18; --label:#232a22; --label-line:#4a5040; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f141c; --surface:#171e29; --sunk:#1f2836; --line:#2c3748;
+  --fg:#e7ecf3; --muted:#9aa6b8; --accent:#7fa3ff; --accent-ink:#0b1220; --accent-soft:#1c2a4a;
+  --amber:#f2b25c; --amber-soft:#3a2a12; --green:#6fd09a; --green-soft:#16301f;
+  --blue:#8db7f5; --blue-soft:#172a44; --grey:#a7b1c0; --grey-soft:#232c39;
+  --red:#ff8a80; --red-soft:#3b1a18; --label:#232a22; --label-line:#4a5040; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:16px;line-height:1.5;margin:0}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+.wrap{max-width:760px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 48px}
+header.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
+header.bar .wrap{display:flex;align-items:center;gap:12px;padding-block:10px;min-height:56px}
+.brand{font-family:var(--f-display);font-weight:700;font-size:20px;letter-spacing:.01em;margin:0;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand small{font-weight:500;color:var(--muted);font-size:14px;margin-left:6px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0}
+h2{font-size:15px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+button,.btn{font:inherit;font-weight:700;font-size:15px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:9px 16px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;justify-content:center;min-height:42px;text-decoration:none}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.ghost{border-color:transparent;background:transparent}
+button.danger{color:var(--red)}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,.chip:focus-within{outline:3px solid var(--accent);outline-offset:2px}
+button[disabled]{opacity:.55;cursor:progress}
+svg.i{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.notice{display:flex;gap:10px;align-items:flex-start;background:var(--accent-soft);border-radius:var(--r);padding:12px 14px;font-size:14px;margin-top:16px}
+.notice b{font-weight:700}
+.stack{display:flex;flex-direction:column;gap:12px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.grow{flex:1;min-width:0}
+input,textarea,select{font:inherit;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;width:100%;min-width:0}
+textarea{resize:vertical;min-height:84px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:700;color:var(--muted);min-width:0}
+label.f span{letter-spacing:.03em}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px}
+@media (max-width:520px){.grid2,.grid3{grid-template-columns:1fr}}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+/* list */
+.search{margin-top:16px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.chip{position:relative;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:14px;font-weight:700;background:var(--surface);cursor:pointer}
+.chip input{position:absolute;opacity:0;inset:0;cursor:pointer}
+.chip:has(input:checked){background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.ghead{display:flex;align-items:baseline;gap:8px;margin:22px 0 0;font-family:var(--f-display);font-size:18px;font-weight:700}
+.ghead small{font-family:var(--f-body);font-size:13px;color:var(--muted);font-weight:400}
+.ho{margin-top:14px;background:var(--surface);border:1px solid var(--accent);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:10px}
+.ho textarea{min-height:170px;font-size:15px;line-height:1.5}
+.pastbtn{width:100%;margin-top:28px;border-radius:var(--r);justify-content:flex-start;padding:14px 16px;min-height:54px;font-size:17px;text-align:left}
+.plist{list-style:none;margin:16px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}
+.pcard{display:grid;grid-template-columns:1fr auto;gap:4px 12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;cursor:pointer;text-align:left;width:100%;color:inherit;font:inherit}
+.pcard:hover{border-color:var(--accent)}
+.pcard .nm{font-family:var(--f-display);font-weight:700;font-size:19px;min-width:0;overflow-wrap:anywhere}
+.pcard .meta{grid-column:1/-1;font-size:13px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap}
+.pcard .dx{grid-column:1/-1;font-size:15px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.empty{text-align:center;color:var(--muted);padding:40px 16px;border:1px dashed var(--line);border-radius:var(--r);margin-top:16px}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;border-radius:999px;padding:3px 10px;white-space:nowrap;align-self:start}
+.pill::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.d-awaiting{color:var(--amber);background:var(--amber-soft)}
+.d-discharged{color:var(--green);background:var(--green-soft)}
+.d-transferred{color:var(--blue);background:var(--blue-soft)}
+.d-inpatient,.d-none{color:var(--grey);background:var(--grey-soft)}
+.tag{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--line);border-radius:4px;padding:1px 6px;color:var(--muted)}
+/* record */
+.sec{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin-top:14px;display:flex;flex-direction:column;gap:12px}
+.sec-h{display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap}
+.hint{font-size:13px;color:var(--muted);margin:0}
+.status{font-size:14px;color:var(--muted);display:flex;gap:8px;align-items:center;min-height:20px}
+.status.err{color:var(--red)}
+.status.ok{color:var(--green)}
+.bar-p{height:4px;background:var(--sunk);border-radius:4px;overflow:hidden;flex:1;max-width:160px}
+.bar-p i{display:block;height:100%;background:var(--accent);width:0;transition:width .2s}
+.sticker{background:var(--label);border:1px solid var(--label-line);border-radius:6px;padding:10px 12px;font-family:var(--f-mono);font-size:13px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto}
+.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+.thumb{position:relative;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--sunk);aspect-ratio:4/3;max-width:100%}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb button{position:absolute;top:6px;right:6px;min-height:32px;padding:4px 10px;font-size:13px;background:var(--surface)}
+.thumb input{position:absolute;left:0;right:0;bottom:0;border-radius:0;border:0;border-top:1px solid var(--line);font-size:13px;padding:6px 8px;background:var(--surface)}
+.seg{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+@media (max-width:520px){.seg{grid-template-columns:1fr 1fr}}
+.seg label{position:relative;border:1px solid var(--line);border-radius:8px;padding:12px 10px;text-align:center;font-weight:700;font-size:15px;cursor:pointer;background:var(--surface)}
+.seg input{position:absolute;opacity:0;inset:0;cursor:pointer}
+.seg label:has(input:checked).d-awaiting{border-color:var(--amber);background:var(--amber-soft);color:var(--amber)}
+.seg label:has(input:checked).d-discharged{border-color:var(--green);background:var(--green-soft);color:var(--green)}
+.seg label:has(input:checked).d-transferred{border-color:var(--blue);background:var(--blue-soft);color:var(--blue)}
+.seg label:has(input:checked).d-inpatient{border-color:var(--grey);background:var(--grey-soft);color:var(--fg)}
+.seg label:not(:has(input:checked)){background:var(--surface);color:var(--fg)}
+.seg label:focus-within{outline:3px solid var(--accent);outline-offset:2px}
+.ct{border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--bg)}
+.ct-found{font-size:13px;font-weight:700;color:var(--green)}
+details summary{cursor:pointer;font-size:14px;color:var(--muted);font-weight:700}
+.filebtn{position:relative;overflow:hidden}
+.filebtn input{position:absolute;inset:0;opacity:0;cursor:pointer;font-size:0}
+.actions{position:sticky;bottom:0;background:linear-gradient(transparent,var(--bg) 30%);padding-top:18px;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px));display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:8px}
+.saved{font-size:13px;color:var(--muted);margin-right:auto;align-self:center}
+/* summary sheet */
+.sheet{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);margin-top:16px;overflow:hidden}
+.sheet-h{padding:18px 18px 14px;border-bottom:1px solid var(--line);display:grid;grid-template-columns:1fr auto;gap:8px 16px}
+.sheet-h h1{font-size:28px;line-height:1.1;overflow-wrap:anywhere}
+.ids{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px 18px;font-size:14px}
+.ids div{display:flex;gap:6px;align-items:baseline}
+.ids dt{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.ids dd{margin:0}
+.sheet-b{display:flex;flex-direction:column}
+.blk{padding:14px 18px;border-bottom:1px solid var(--line);display:grid;grid-template-columns:130px 1fr;gap:12px}
+.blk:last-child{border-bottom:0}
+@media (max-width:520px){.blk{grid-template-columns:1fr;gap:4px}}
+.blk h2{padding-top:2px}
+.blk .v{white-space:pre-wrap;overflow-wrap:anywhere;min-width:0}
+.blk .v.none{color:var(--muted);font-style:italic}
+.ctq{border-left:3px solid var(--accent);padding-left:12px;margin:0 0 10px}
+.ctq:last-child{margin-bottom:0}
+.ctq .src{font-size:12px;color:var(--muted);margin-bottom:2px}
+.sheet .thumbs{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+figure{margin:0}
+figcaption{font-size:13px;color:var(--muted);margin-top:4px}
+.foot{font-size:12px;color:var(--muted);padding:10px 18px;background:var(--sunk)}
+.meds{display:flex;flex-wrap:wrap;gap:8px}
+.med{font:inherit;font-size:14px;font-weight:700;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:8px;padding:8px 12px;min-height:40px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-align:left}
+.med[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.med .x{font-weight:700;color:var(--red);margin-left:2px}
+.medlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.medlist li{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 6px 6px 12px;font-size:15px}
+.medlist li span{flex:1;min-width:0;overflow-wrap:anywhere}
+.medlist li button{min-height:32px;padding:4px 10px;font-size:13px}
+.thumb.tap{cursor:zoom-in}
+.thumb.tap img{object-position:top}
+.viewer{position:fixed;inset:0;z-index:30;background:rgba(0,0,0,.92);display:flex;flex-direction:column;padding:calc(10px + env(safe-area-inset-top,0px)) max(10px,env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(10px,env(safe-area-inset-left,0px))}
+.viewer .vb{display:flex;justify-content:flex-end}
+.viewer .vi{flex:1;overflow:auto;display:flex;flex-direction:column;gap:10px;align-items:center}
+.viewer img{max-width:100%;height:auto}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:14px;font-size:14px;font-weight:700;z-index:20;max-width:calc(100% - 32px)}
+.confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--red-soft);color:var(--red);border-radius:8px;padding:10px 12px;font-size:14px;font-weight:700}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-cam" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-sheet" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4H4v12h4"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
+  <symbol id="i-img" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 8"/></symbol>
+</svg>
+
+<header class="bar"><div class="wrap" id="topbar"></div></header>
+<main class="wrap" id="app"></main>
+<div class="toast" id="toast" hidden></div>
+
+<script src="lib/tesseract.min.js"></script>
+<script src="lib/pdf.min.js"></script>
+<script src="lib/zxing.min.js"></script>
+<script>
+"use strict";
+/* ---------- helpers ---------- */
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const icon = n => `<svg class="i"><use href="#i-${n}"/></svg>`;
+const abs = p => new URL(p, location.href).href;
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const DISPO = {
+  awaiting: "Awaiting surgery", discharged: "Discharged", transferred: "Transferred", inpatient: "Other"
+};
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, 2600);
+}
+function fmtDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso); if (isNaN(d)) return iso;
+  return d.toLocaleDateString(undefined, {day:"numeric", month:"short", year:"numeric"});
+}
+function fmtDateTime(iso) {
+  const d = new Date(iso); if (isNaN(d)) return "";
+  return d.toLocaleString(undefined, {day:"numeric", month:"short", hour:"2-digit", minute:"2-digit"});
+}
+function ageFrom(dob) {
+  const d = parseDob(dob); if (!d) return "";
+  const n = new Date(); let a = n.getFullYear() - d.getFullYear();
+  if (n.getMonth() < d.getMonth() || (n.getMonth() === d.getMonth() && n.getDate() < d.getDate())) a--;
+  return a >= 0 && a < 130 ? a + "y" : "";
+}
+const ageOf = p => p.age || ageFrom(p.dob);
+const MONTHS = "jan feb mar apr may jun jul aug sep oct nov dec".split(" ");
+function parseDob(s) {
+  if (!s) return null; s = s.trim();
+  let m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/);
+  if (m) { let y = +m[3]; if (y < 100) y += y > (new Date().getFullYear() % 100) ? 1900 : 2000; return new Date(y, m[2] - 1, +m[1]); }
+  m = s.match(/^(\d{1,2})[\s\-]+([A-Za-z]{3,9})[\s\-]+(\d{4})$/);
+  if (m) { const mi = MONTHS.indexOf(m[2].slice(0,3).toLowerCase()); if (mi >= 0) return new Date(+m[3], mi, +m[1]); }
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/); if (m) return new Date(+m[1], m[2]-1, +m[3]);
+  return null;
+}
+
+/* ---------- storage: IndexedDB on this device only ---------- */
+const store = (() => {
+  let dbp = null, mem = new Map(), ok = true;
+  function open() {
+    if (dbp) return dbp;
+    dbp = new Promise((res, rej) => {
+      try {
+        const r = indexedDB.open("ward-patient-log", 1);
+        r.onupgradeneeded = () => r.result.createObjectStore("patients", {keyPath: "id"});
+        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+      } catch (e) { rej(e); }
+    }).catch(e => { ok = false; console.warn("IndexedDB unavailable", e); return null; });
+    return dbp;
+  }
+  async function tx(mode, fn) {
+    const db = await open(); if (!db) return fn(null);
+    return new Promise((res, rej) => {
+      const t = db.transaction("patients", mode), s = t.objectStore("patients");
+      let out; Promise.resolve(fn(s)).then(v => out = v);
+      t.oncomplete = () => res(out); t.onerror = () => rej(t.error);
+    });
+  }
+  const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  return {
+    get persistent() { return ok; },
+    async all() { const v = await tx("readonly", s => s ? req(s.getAll()) : [...mem.values()]); return (await v) || []; },
+    async put(p) { mem.set(p.id, p); await tx("readwrite", s => s && s.put(p)); },
+    async del(id) { mem.delete(id); await tx("readwrite", s => s && s.delete(id)); },
+    async ready() { await open(); try { await navigator.storage?.persist?.(); } catch {} }
+  };
+})();
+
+/* ---------- image helpers ---------- */
+async function fileToImage(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image(); img.decoding = "async"; img.src = url; await img.decode(); return img;
+  } finally { setTimeout(() => URL.revokeObjectURL(url), 1000); }
+}
+function drawScaled(img, max) {
+  const s = Math.min(1, max / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round((img.naturalWidth || img.width) * s); c.height = Math.round((img.naturalHeight || img.height) * s);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); return c;
+}
+async function compressPhoto(file, max = 1600, q = 0.82) {
+  const img = await fileToImage(file); return drawScaled(img, max).toDataURL("image/jpeg", q);
+}
+
+/* ---------- OCR (Tesseract, runs in this browser) ---------- */
+let ocrWorkerP = null, ocrProgress = null;
+function ocrWorker() {
+  if (!ocrWorkerP) {
+    ocrWorkerP = Tesseract.createWorker("eng", 1, {
+      workerPath: abs("lib/ocr-worker.js"), corePath: abs("lib/core/"), langPath: abs("lang"),
+      workerBlobURL: false, gzip: true, cacheMethod: "write", cachePath: "wpl-ocr",
+      logger: m => ocrProgress && ocrProgress(m)
+    }).catch(e => { ocrWorkerP = null; throw e; });
+  }
+  return ocrWorkerP;
+}
+async function ocrImage(source, onProgress, psm = "3") {
+  ocrProgress = m => {
+    if (!onProgress) return;
+    const step = m.status === "recognizing text" ? "Reading text" : "Loading text reader";
+    onProgress(step, m.progress || 0);
+  };
+  const w = await ocrWorker();
+  await w.setParameters({ tessedit_pageseg_mode: psm });
+  const { data } = await w.recognize(source);
+  ocrProgress = null; return data.text || "";
+}
+function prepForOcr(img) {
+  // upscale small photos, downscale huge ones, grayscale + contrast stretch
+  const longest = Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height);
+  const target = Math.min(2400, Math.max(1400, longest));
+  const s = target / longest;
+  const c = document.createElement("canvas");
+  c.width = Math.round((img.naturalWidth || img.width) * s); c.height = Math.round((img.naturalHeight || img.height) * s);
+  const x = c.getContext("2d"); x.drawImage(img, 0, 0, c.width, c.height);
+  try {
+    const d = x.getImageData(0, 0, c.width, c.height), p = d.data; let lo = 255, hi = 0;
+    for (let i = 0; i < p.length; i += 4) { const g = (p[i]*.299 + p[i+1]*.587 + p[i+2]*.114); p[i] = g; if (g < lo) lo = g; if (g > hi) hi = g; }
+    const k = 255 / Math.max(1, hi - lo);
+    for (let i = 0; i < p.length; i += 4) { const g = (p[i] - lo) * k; p[i] = p[i+1] = p[i+2] = g; }
+    x.putImageData(d, 0, 0);
+  } catch {}
+  return c;
+}
+
+/* ---------- barcode (PMI) ---------- */
+function decode1D(canvas) {
+  const hints = new Map();
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39, ZXing.BarcodeFormat.ITF, ZXing.BarcodeFormat.CODE_93, ZXing.BarcodeFormat.CODABAR, ZXing.BarcodeFormat.EAN_13]);
+  const rd = new ZXing.MultiFormatReader(); rd.setHints(hints);
+  try { return rd.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(canvas)))); }
+  catch { return null; }
+}
+async function findBarcode(img) {
+  // Scan the photo in overlapping strips: a small sticker barcode is easy to miss in a whole-page scan.
+  if (typeof ZXing === "undefined") return null;
+  const big = drawScaled(img, 2000), W = big.width, H = big.height;
+  const tries = [[1, 1]];
+  for (const [fw, fh] of [[0.6, 0.14], [0.45, 0.1], [0.35, 0.06], [0.5, 0.08]]) {
+    for (let y = 0; y + fh <= 1.0001; y += fh / 2) for (let x = 0; x + fw <= 1.0001; x += fw / 3) tries.push([fw, fh, x, y]);
+  }
+  for (const [fw, fh, fx = 0, fy = 0] of tries) {
+    const cw = Math.round(W * fw), ch = Math.round(H * fh), cx = Math.round(W * fx), cy = Math.round(H * fy);
+    const c = document.createElement("canvas"); c.width = cw; c.height = ch;
+    c.getContext("2d").drawImage(big, cx, cy, cw, ch, 0, 0, cw, ch);
+    const r = decode1D(c);
+    if (r && /\d{4,}/.test(r.getText())) {
+      const pts = r.getResultPoints() || [];
+      const xs = pts.map(p => p.getX() + cx), ys = pts.map(p => p.getY() + cy);
+      return { text: r.getText(), canvas: big, x0: Math.min(...xs), x1: Math.max(...xs), y: ys.reduce((a, b) => a + b, 0) / (ys.length || 1) };
+    }
+    await new Promise(r => setTimeout(r)); // keep the page responsive
+  }
+  return null;
+}
+function barcodeTop(bc) {
+  // walk up from the decoded row while the row still looks like bars (many dark/light flips)
+  // Neighbouring rows inside a barcode are near-identical; the first row that differs a lot is the text above it.
+  const { canvas, x0, x1 } = bc, x = canvas.getContext("2d"), w = Math.max(1, Math.round(x1 - x0));
+  const row = yy => { const d = x.getImageData(Math.round(x0), yy, w, 1).data, g = [];
+    for (let i = 0; i < d.length; i += 4) g.push(d[i] + d[i+1] + d[i+2]);
+    const hi = Math.max(...g), lo = Math.min(...g), t = (hi + lo) / 2, b = g.map(v => v < t);
+    let flips = 0; for (let i = 1; i < b.length; i++) if (b[i] !== b[i-1]) flips++;
+    return hi - lo > 150 && flips >= 16 ? b : null; };
+  const same = (a, b) => { if (!a || !b) return 0; let n = 0; for (let i = 0; i < a.length; i++) if (a[i] === b[i]) n++; return n / a.length; };
+  let y = Math.round(bc.y), prev = row(y), miss = 0;
+  const limit = Math.max(1, Math.round(bc.y - w * 0.6));
+  while (y > limit) {
+    const r = row(y - 1);
+    if (same(r, prev) < 0.8) { if (++miss > 1) break; } else miss = 0;
+    y--; prev = r;
+  }
+  return y + miss;
+}
+function labelCrop(bc) {
+  // The PMI / name and DoB / gender / age lines sit just above the barcode.
+  const bw = bc.x1 - bc.x0, top = barcodeTop(bc), c0 = bc.canvas;
+  const x = Math.max(0, bc.x0 - bw * 0.3), y = Math.max(0, top - bw * 0.32);
+  const w = Math.min(c0.width - x, bw * 2.6), h = Math.max(10, top - y - bw * 0.015);
+  const c = document.createElement("canvas"); const k = Math.min(4, Math.max(1, 1800 / w));
+  c.width = Math.round(w * k); c.height = Math.round(h * k);
+  const g = c.getContext("2d"); g.imageSmoothingQuality = "high"; g.drawImage(c0, x, y, w, h, 0, 0, c.width, c.height);
+  return c;
+}
+
+function binarize(src) {
+  // local-mean threshold so shadows, label edges and coloured folders don't swamp the text
+  const pad = 20, c = document.createElement("canvas"); c.width = src.width + pad * 2; c.height = src.height + pad * 2;
+  const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(src, pad, pad);
+  const W = c.width, H = c.height, im = g.getImageData(0, 0, W, H), d = im.data, gray = new Float32Array(W * H), I = new Float64Array((W + 1) * (H + 1));
+  for (let i = 0; i < W * H; i++) gray[i] = Math.min(d[i*4], d[i*4+1], d[i*4+2]) * 0.5 + (d[i*4]*.299 + d[i*4+1]*.587 + d[i*4+2]*.114) * 0.5;
+  for (let y = 0; y < H; y++) { let row = 0; for (let x = 0; x < W; x++) { row += gray[y*W+x]; I[(y+1)*(W+1)+x+1] = I[y*(W+1)+x+1] + row; } }
+  const r = Math.max(8, Math.round(H / 6));
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const x0 = Math.max(0, x - r), x1 = Math.min(W, x + r + 1), y0 = Math.max(0, y - r), y1 = Math.min(H, y + r + 1);
+    const mean = (I[y1*(W+1)+x1] - I[y0*(W+1)+x1] - I[y1*(W+1)+x0] + I[y0*(W+1)+x0]) / ((x1-x0)*(y1-y0));
+    const v = gray[y*W+x] < mean * 0.8 ? 0 : 255, k = (y*W+x)*4; d[k] = d[k+1] = d[k+2] = v; d[k+3] = 255;
+  }
+  g.putImageData(im, 0, 0); return c;
+}
+
+/* ---------- sticker parsing ---------- */
+function parseSticker(raw) {
+  const text = raw.replace(/[|]/g, " ").replace(/[ \t]+/g, " ");
+  const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+  const out = {};
+  const grab = re => { const m = text.match(re); return m ? m[1].trim() : ""; };
+  out.nhs = grab(/NHS\s*(?:No\.?|Number|#)?[\s:.]*(\d{3}[\s\-]?\d{3}[\s\-]?\d{4})/i);
+  const pmiLine = lines.find(l => /P\s?M\s?[I1l|]\s*[:;.]?\s*0*\d{4,}/i.test(l) && !/OLD\s*P/i.test(l));
+  if (pmiLine) {
+    out.mrn = pmiLine.match(/P\s?M\s?[I1l|]\s*[:;.]?\s*0*(\d{4,})/i)[1];
+    const nm = pmiLine.match(/\d{4,}\s+(?:(?:Mr|Mrs|Ms|Miss|Mstr|Master|Dr|Prof|Baby|Nr)\.?\s+)?([\p{Lu}'’\-]{2,}\s*,\s*[\p{L}'’\- ]{2,}?)(?=\s{2,}|\s+\d|\s*$)/u);
+    if (nm) out.labelName = nm[1];
+  }
+  if (!out.labelName) { const tm = text.match(/\b(?:Mr|Mrs|Ms|Miss|Mstr|Master|Dr|Prof|Baby)\.?\s+([\p{Lu}'’\-]{2,}\s*,\s*[\p{Lu}'’\- ]{2,}?)(?=\s{2,}|\s+\d|\s*$|\n)/mu); if (tm) out.labelName = tm[1]; }
+  if (!out.labelName) { const mm = text.match(/MEMBER\s*NAME[\s:.]*(?:(?:Mr|Mrs|Ms|Miss|Mstr|Master|Dr|Nr)\.?\s+)?([\p{Lu}'’\-]{2,}\s*,\s*[\p{Lu}'’\- ]{2,})/u); if (mm) out.labelName = mm[1]; }
+  const ag = text.match(/AGE\s*[:;.]?\s*(\d{1,3})(?:\s*\/\s*(\d{1,2}))?/i);
+  if (ag) out.age = ag[1] + "y" + (ag[2] !== undefined && +ag[2] > 0 ? " " + ag[2] + "m" : "");
+  if (!out.mrn) out.mrn = grab(/(?:MRN|Hosp(?:ital)?\.?\s*(?:No\.?|Number|#)|Hosp\s*No|Unit\s*No\.?|URN|PAS\s*(?:No\.?)?|Patient\s*ID|RXN|K\s*No\.?|Case\s*No\.?)[\s:.#]*([A-Z]{0,3}\d[\dA-Z\-]{3,14})/i);
+  const datePat = "(\\d{1,2}[\\/.\\-]\\d{1,2}[\\/.\\-]\\d{2,4}|\\d{1,2}[\\s\\-][A-Za-z]{3,9}[\\s\\-]\\d{4})";
+  out.dob = grab(new RegExp("(?:DOB|D\\.O\\.B\\.?|Date\\s*of\\s*Birth|Born|Birth\\s*Date)[\\s:.]*" + datePat, "i"));
+  if (!out.dob) { const m = text.match(new RegExp(datePat)); if (m) out.dob = m[1]; }
+  const sx = text.match(/(?:Sex|Gender)[\s:.]*\b(Male|Female|M|F)\b/i) || text.match(/\b(Male|Female)\b/i);
+  if (sx) out.sex = /^m/i.test(sx[1]) ? "M" : "F";
+  // Name: explicit label, else "SURNAME, Firstname" line, else first wordy line
+  let name = out.labelName || grab(/(?:Patient\s*)?Name[\s:.]+([\p{L}'’\- ,.]{3,60})/iu);
+  if (!name) {
+    const cand = lines.find(l => /^[\p{Lu}'’\-]{2,}\s*,\s*[\p{L}'’\- .]{2,}$/u.test(l))
+      || lines.find(l => !/\d/.test(l) && /^[\p{L}'’\-.,]+(\s+[\p{L}'’\-.,]+){1,4}$/u.test(l)
+         && !/(hospital|trust|nhs|ward|address|road|street|consultant|clinic|department|hosp|lane|avenue|drive)/i.test(l));
+    if (cand) name = cand;
+  }
+  name = name.replace(/\b(DOB|D\.O\.B|Sex|Gender|NHS|MRN|Hosp.*)$/i, "").replace(/\s+/g, " ").trim().replace(/[,.]$/, "");
+  if (/^[\p{Lu}'’\-]+\s*,/u.test(name)) { // SURNAME, First -> First SURNAME
+    const [s, f] = name.split(/\s*,\s*/); name = (f ? titleCase(f) + " " : "") + s.toUpperCase();
+  } else if (name === name.toUpperCase()) {
+    const parts = name.split(" "); if (parts.length > 1) name = parts.slice(0, -1).map(titleCase).join(" ") + " " + parts.at(-1);
+  }
+  out.name = name.trim(); delete out.labelName;
+  if (out.mrn) out.mrn = out.mrn.replace(/^0+(?=\d)/, "");
+  out.ward = grab(/Ward[\s:.]+([A-Za-z0-9' \-]{2,30})/i).split(/\s{2,}|\b(?:Cons|Bed)\b/i)[0].trim();
+  out.consultant = grab(/(?:Consultant|Cons\.?)[\s:.]+((?:Dr|Mr|Mrs|Ms|Miss|Prof)\.?\s*[A-Za-z'’\- .]{2,40})/i);
+  const pc = text.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/);
+  if (pc) {
+    const i = lines.findIndex(l => l.includes(pc[1]));
+    const addr = [];
+    for (let j = Math.max(0, i - 3); j <= i; j++) {
+      const l = lines[j];
+      if (/(NHS|MRN|DOB|Hosp|Name|Sex|Ward|Consultant)/i.test(l) || l === lines.find(x => x.includes(out.name))) continue;
+      addr.push(l);
+    }
+    out.address = addr.join(", ");
+  }
+  const d = parseDob(out.dob || "");
+  if (out.dob && (!d || d > new Date() || d.getFullYear() < 1900)) delete out.dob;
+  if (out.dob) { // OCR often confuses 3/8 or 1/7 in the age; trust the date of birth when they disagree
+    const yrs = parseInt(ageFrom(out.dob), 10), got = parseInt(out.age || "", 10);
+    if (!isNaN(yrs) && (isNaN(got) || Math.abs(yrs - got) > 1)) out.age = yrs + "y" + (out.age && / \d+m$/.test(out.age) ? out.age.match(/ \d+m$/)[0] : "");
+  }
+  Object.keys(out).forEach(k => { if (!out[k]) delete out[k]; });
+  return out;
+}
+const titleCase = s => s.toLowerCase().replace(/(^|[\s\-'’])(\p{Ll})/gu, (m, a, b) => a + b.toUpperCase());
+
+/* ---------- CT report: text extraction + conclusion finder ---------- */
+async function pdfText(file, onProgress) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = abs("lib/pdf.worker.min.js");
+  const pdf = await pdfjsLib.getDocument({data: await file.arrayBuffer()}).promise;
+  let all = "";
+  for (let n = 1; n <= pdf.numPages; n++) {
+    onProgress && onProgress(`Reading page ${n} of ${pdf.numPages}`, n / pdf.numPages);
+    const page = await pdf.getPage(n);
+    const tc = await page.getTextContent();
+    let lastY = null, line = "";
+    for (const it of tc.items) {
+      const y = Math.round(it.transform[5]);
+      if (lastY !== null && Math.abs(y - lastY) > 2) { all += line.trimEnd() + "\n"; line = ""; }
+      line += it.str; if (it.hasEOL) { all += line.trimEnd() + "\n"; line = ""; lastY = null; continue; }
+      lastY = y;
+    }
+    all += line + "\n";
+  }
+  if (all.replace(/\s/g, "").length > 40) return all;
+  // scanned PDF: render pages and OCR them
+  let ocr = "";
+  for (let n = 1; n <= Math.min(pdf.numPages, 4); n++) {
+    const page = await pdf.getPage(n), vp = page.getViewport({scale: 2.2});
+    const c = document.createElement("canvas"); c.width = vp.width; c.height = vp.height;
+    await page.render({canvasContext: c.getContext("2d"), viewport: vp}).promise;
+    ocr += await ocrImage(c, (s, p) => onProgress && onProgress(`${s} (page ${n})`, p)) + "\n";
+  }
+  return ocr;
+}
+const HEADINGS = [
+  ["conclusion", /\b(conclusions?)\b/i], ["impression", /\b(impressions?)\b/i],
+  ["opinion", /\b(opinion)\b/i], ["comment", /\b(comments?)\b/i],
+  ["summary", /\b(summary)\b/i], ["interpretation", /\b(interpretation)\b/i]
+];
+const STOP = /^\s*(reported\s+by|report(ed)?\s+(date|on)|electronically\s+(signed|verified)|verified\s+by|authori[sz]ed\s+by|signed\s+(by|electronically)|dictated|transcribed|typed\s+by|radiologist|consultant\s+radiologist|dr\.?\s+[a-z]+.*\b(frcr|radiolog)|gmc\b|this\s+report|page\s+\d+\s+of|end\s+of\s+report|recommendations?\s*:|addendum|findings\s*:|technique\s*:|clinical\s+(details|history|indication)\s*:|history\s*:)/i;
+function findConclusion(raw) {
+  const text = raw.replace(/\r/g, "").replace(/[ \t]+/g, " ");
+  const lines = text.split("\n");
+  for (const [label, re] of HEADINGS) {
+    // heading as its own line or inline "CONCLUSION: ..."; take the LAST occurrence (conclusions sit at the end)
+    let hit = -1, rest = "";
+    lines.forEach((l, i) => {
+      const t = l.trim();
+      const m = t.match(new RegExp("^(?:\\d+[.)]\\s*)?" + re.source + "\\s*(?:[:\\-–—]\\s*|$)(.*)$", "i"));
+      if (m && (m[2] !== undefined)) { hit = i; rest = m[2] || ""; }
+    });
+    if (hit < 0) continue;
+    const body = []; if (rest.trim()) body.push(rest.trim());
+    for (let i = hit + 1; i < lines.length; i++) {
+      const t = lines[i].trim();
+      if (STOP.test(t)) break;
+      if (/^[A-Z][A-Za-z /&]{2,30}:\s*$/.test(t) && body.length) break; // next heading
+      if (!t) { if (body.length && body.at(-1) === "") break; body.push(""); continue; }
+      body.push(t);
+      if (body.join(" ").length > 2000) break;
+    }
+    const out = body.join("\n").replace(/\n{2,}/g, "\n").trim();
+    if (out.length > 3) return { label, text: tidy(out) };
+  }
+  return null;
+}
+function tidy(s) { // re-join lines that were wrapped mid-sentence, keep numbered/bulleted points on their own line
+  return s.split("\n").reduce((acc, l) => {
+    if (acc.length && !/^(\d+[.)]|[-•*])\s/.test(l) && !/[.:;]$/.test(acc.at(-1))) acc[acc.length - 1] += " " + l;
+    else acc.push(l);
+    return acc;
+  }, []).join("\n");
+}
+
+/* ---------- state ---------- */
+let patients = [];
+function blank() {
+  return { id: uid(), created: new Date().toISOString(), updated: new Date().toISOString(),
+    name: "", dob: "", sex: "", mrn: "", nhs: "", ward: "", consultant: "", address: "", admitted: new Date().toISOString().slice(0,10),
+    sticker: null, stickerText: "", diagnosis: "", comorbid: "", treatment: "", plan: "", meds: [], labs: [], ct: [], dispo: "", dispoNote: "", dispoDate: "", photos: [] };
+}
+function example() {
+  const p = blank();
+  Object.assign(p, { example: true, name: "Example Patient (sample)", dob: "14/03/1961", sex: "M", mrn: "1234567", age: "64y", ward: "267 / Bed 4", 
+    admitted: new Date(Date.now() - 2 * 864e5).toISOString().slice(0,10),
+    diagnosis: "Acute appendicitis with localised perforation.",
+    treatment: "NBM, IV fluids. Consented for laparoscopic appendicectomy.", comorbid: "",
+    plan: "Laparoscopic appendicectomy tonight. Repeat FBC and CRP in the morning.",
+    meds: ["Paracetamol 1g PO 6-hourly", "Ceftriaxone 1g IV daily", "Metronidazole 500mg IV 8-hourly"],
+    ct: [{ id: uid(), date: new Date(Date.now() - 864e5).toISOString().slice(0,10), title: "CT abdomen/pelvis with contrast", file: "sample-report.pdf",
+      conclusion: "Acute appendicitis with a small focus of extraluminal gas in keeping with localised perforation. No drainable collection. No free fluid elsewhere.", raw: "" }],
+    dispo: "awaiting", dispoNote: "On CEPOD list, expected this evening." });
+  return p;
+}
+async function load() {
+  await store.ready();
+  try { patients = await store.all(); } catch { patients = []; }
+  let seeded = false; try { seeded = localStorage.getItem("wpl-seeded") === "1"; } catch {}
+  if (!patients.length && !seeded) {
+    const ex = example(); patients = [ex];
+    try { await store.put(ex); localStorage.setItem("wpl-seeded", "1"); } catch {}
+  }
+}
+async function save(p) {
+  p.updated = new Date().toISOString();
+  const i = patients.findIndex(x => x.id === p.id); if (i < 0) patients.push(p); else patients[i] = p;
+  try { await store.put(p); return true; } catch (e) { toast("Could not save on this device: " + e.message); return false; }
+}
+
+/* ---------- routing ---------- */
+function route() {
+  const h = location.hash.slice(1);
+  let m;
+  if ((m = h.match(/^edit-([a-z0-9]+)$/))) return renderEdit(m[1]);
+  if ((m = h.match(/^summary-([a-z0-9]+)$/))) return renderSummary(m[1]);
+  if (h === "past") return renderList(true);
+  return renderList();
+}
+const go = h => { if (location.hash.slice(1) === h) route(); else location.hash = h; };
+addEventListener("hashchange", () => { window.scrollTo(0, 0); route(); });
+
+/* ---------- list view ---------- */
+let filter = { q: "", d: "all" };
+const MAIN_WARD = "267";
+const wardGroup = p => !(p.ward || "").trim() ? "none" : new RegExp("(^|\\D)" + MAIN_WARD + "(\\D|$)").test(p.ward) ? "in" : "out";
+const isPast = p => p.dispo === "discharged" || p.dispo === "transferred";
+function renderList(past = false) {
+  $("#topbar").innerHTML = past
+    ? `<button class="ghost" id="back" aria-label="Back to active patients">${icon("back")}</button><p class="brand">Past patients</p>`
+    : `<p class="brand">Ward Patient Log</p><button class="primary" id="new">${icon("plus")}New patient</button>`;
+  if (past) $("#back").onclick = () => go(""); else $("#new").onclick = async () => { const p = blank(); await save(p); go("edit-" + p.id); };
+  const active = patients.filter(p => !isPast(p)), pastList = patients.filter(isPast);
+  const counts = { all: active.length, in: active.filter(p => wardGroup(p) === "in").length, out: active.filter(p => wardGroup(p) === "out").length };
+  $("#app").innerHTML = `
+    ${past ? `<p class="hint" style="margin-top:16px">Discharged and transferred patients. Open a file to read it, or bring the patient back to the active list if they return.</p>`
+      : `<div class="notice">${icon("lock")}<div><b>Stored only in this browser on this device.</b> Nothing is sent to a server, and sticker and report reading happen on the device. Use test data until your information governance team has approved this for real patients.${store.persistent ? "" : " <b>This browser is blocking storage, so records will be lost when you close the page.</b>"}</div></div>`}
+    <input class="search" id="q" type="search" placeholder="Search name, PMI, diagnosis" value="${esc(filter.q)}" aria-label="Search patients">
+    ${past ? "" : `<div class="chips" role="radiogroup" aria-label="Show patients">
+      ${[["all", "All"], ["in", "Inpatients"], ["out", "Outliers"]].map(([k, v]) =>
+        `<label class="chip"><input type="radio" name="df" value="${k}" ${filter.d===k?"checked":""}>${v} <span class="mono">${counts[k]}</span></label>`).join("")}
+    </div>`}
+    ${past ? "" : `<button id="wr" style="margin-top:12px">${icon("sheet")}Ward round list</button>
+    <div class="ho" id="wrpanel" hidden></div>`}
+    <div id="plist"></div>
+    ${past ? "" : `<button class="pastbtn" id="topast">${icon("doc")}<span class="grow">Past</span><span class="hint">Discharged and transferred</span><span class="mono">${pastList.length}</span></button>
+    <div class="row" style="margin-top:16px">
+      <button id="exp">${icon("save")}Save a backup file</button>
+      <label class="btn filebtn">${icon("doc")}Restore from backup<input type="file" id="imp" accept="application/json,.json"></label>
+    </div>`}`;
+  const draw = () => {
+    const q = filter.q.toLowerCase();
+    const base = past ? pastList : active.filter(p => filter.d === "all" || wardGroup(p) === filter.d);
+    const rows = base.filter(p => !q || [p.name, p.mrn, p.diagnosis, p.ward].join(" ").toLowerCase().includes(q))
+      .sort((a, b) => past ? (b.dispoDate || b.updated || "").localeCompare(a.dispoDate || a.updated || "") : (b.updated || "").localeCompare(a.updated || ""));
+    const card = p => `<li><button class="pcard" data-id="${p.id}">
+        <span class="nm">${esc(p.name || "Unnamed patient")}</span>
+        <span class="pill d-${p.dispo || "none"}">${esc(DISPO[p.dispo] || "No disposition")}${past && p.dispoDate ? " " + esc(fmtDate(p.dispoDate)) : ""}</span>
+        <span class="meta"><span class="mono">${p.mrn ? "PMI " + esc(p.mrn) : "No PMI"}</span>${ageOf(p) || p.sex ? `<span>${esc([ageOf(p), p.sex].filter(Boolean).join(" · "))}</span>` : ""}${p.ward ? `<span>${esc(p.ward)}</span>` : ""}${p.example ? `<span class="tag">Example</span>` : ""}</span>
+        ${p.diagnosis ? `<span class="dx">${esc(p.diagnosis)}</span>` : ""}
+      </button></li>`;
+    const groups = past ? [["", "", rows]] : [["Inpatients", `Ward ${MAIN_WARD}`, rows.filter(p => wardGroup(p) === "in")],
+      ["Outliers", "Other wards", rows.filter(p => wardGroup(p) === "out")],
+      ["Ward not set", "", rows.filter(p => wardGroup(p) === "none")]];
+    const emptyMsg = past ? (pastList.length ? "No past patients match your search." : "No past patients yet. Patients move here when you mark them discharged or transferred.")
+      : active.length ? "No patients match this filter." : "No active patients. Tap <b>New patient</b>, then photograph the patient's sticker.";
+    $("#plist").innerHTML = rows.length ? groups.filter(g => g[2].length).map(([t, sub, list]) =>
+        `${t ? `<h2 class="ghead">${t} <small>${sub ? esc(sub) + " · " : ""}${list.length}</small></h2>` : ""}<ul class="plist" style="margin-top:${t ? 8 : 16}px">${list.map(card).join("")}</ul>`).join("")
+      : `<div class="empty">${emptyMsg}</div>`;
+    $("#plist").querySelectorAll(".pcard").forEach(b => b.onclick = () => go("summary-" + b.dataset.id));
+  };
+  draw();
+  $("#q").oninput = e => { filter.q = e.target.value; draw(); };
+  document.querySelectorAll('input[name="df"]').forEach(r => r.onchange = e => { filter.d = e.target.value; draw(); });
+  if (!past) $("#wr").onclick = () => wardRound(active);
+  if (!past) { $("#topast").onclick = () => go("past"); $("#exp").onclick = exportBackup; $("#imp").onchange = importBackup; }
+}
+async function exportBackup() {
+  const data = JSON.stringify({ app: "ward-patient-log", version: 1, exported: new Date().toISOString(), medButtons: medButtons(), patients }, null, 1);
+  const dl = await (window.claude?.use?.("downloads") ?? null);
+  const filename = `patient-log-backup-${new Date().toISOString().slice(0,10)}.json`;
+  if (dl) {
+    try { await dl.save({ filename, data: new Blob([data], {type: "application/json"}) }); toast("Backup saved"); return; }
+    catch (e) { if (e?.code === "user_declined" || e?.code === "declined") return; }
+  }
+  try { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([data], {type:"application/json"})); a.download = filename; a.click(); toast("Backup file created"); }
+  catch { toast("This viewer cannot save files"); }
+}
+async function importBackup(e) {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const j = JSON.parse(await f.text()); if (!Array.isArray(j.patients)) throw new Error("not a patient log backup");
+    if (Array.isArray(j.medButtons)) saveMedButtons(j.medButtons);
+    let n = 0; for (const p of j.patients) { if (p && p.id) { await store.put(p); n++; } }
+    patients = await store.all(); toast(`Restored ${n} patient${n === 1 ? "" : "s"}`); renderList();
+  } catch (err) { toast("Could not restore: " + err.message); }
+}
+
+/* ---------- edit view ---------- */
+function field(id, label, value, attrs = "") {
+  return `<label class="f"><span>${label}</span><input id="${id}" data-k="${id}" value="${esc(value)}" ${attrs}></label>`;
+}
+function renderEdit(id) {
+  const p = patients.find(x => x.id === id); if (!p) return go("");
+  $("#topbar").innerHTML = `<button class="ghost" id="back" aria-label="Back to patient list">${icon("back")}</button>
+    <p class="brand">${esc(p.name || "New patient")}</p>
+    <button id="tosum">${icon("sheet")}Summary</button>`;
+  const openedPast = isPast(p); $("#back").onclick = () => go(openedPast && isPast(p) ? "past" : "");
+  $("#tosum").onclick = () => go("summary-" + p.id);
+
+  $("#app").innerHTML = `
+  <section class="sec" aria-labelledby="h-det">
+    <div class="sec-h"><h2 id="h-det">Patient details</h2>
+      <label class="btn primary filebtn">${icon("cam")}Photograph sticker<input type="file" id="stk" accept="image/*" capture="environment"></label></div>
+    <p class="hint">Take a clear, close photo of the patient label. The fields fill in automatically; check each one.</p>
+    <div class="status" id="stk-st"></div>
+    ${p.sticker ? `<div class="thumbs"><div class="thumb"><img src="${p.sticker}" alt="Sticker photo"></div></div>` : ""}
+    ${field("name", "Name and surname", p.name)}
+    <div class="grid2">${field("mrn", "File no. (PMI)", p.mrn, 'class="mono" inputmode="numeric"')}${field("age", "Age", p.age || ageFrom(p.dob), 'placeholder="e.g. 41y"')}</div>
+    <div class="grid2"><label class="f"><span>Gender</span><select id="sex" data-k="sex"><option value=""></option><option ${p.sex==="F"?"selected":""} value="F">Female</option><option ${p.sex==="M"?"selected":""} value="M">Male</option><option ${p.sex==="X"?"selected":""} value="X">Other</option></select></label>${field("ward", "Ward / bed", p.ward)}</div>
+    ${field("admitted", "Admitted", p.admitted, 'type="date"')}
+    ${p.stickerText ? `<details><summary>Text read from sticker</summary><div class="sticker">${esc(p.stickerText)}</div></details>` : ""}
+  </section>
+
+  <section class="sec" aria-labelledby="h-dx">
+    <h2 id="h-dx">Diagnosis</h2>
+    <textarea id="diagnosis" data-k="diagnosis" placeholder="e.g. Left eye bacterial keratitis" aria-labelledby="h-dx">${esc(p.diagnosis)}</textarea>
+    ${field("comorbid", "Comorbidities", p.comorbid, 'placeholder="Leave blank if none, e.g. HIV on ART, T2DM"')}
+  </section>
+
+  <section class="sec" aria-labelledby="h-tx">
+    <h2 id="h-tx">Treatment</h2>
+    <textarea id="treatment" data-k="treatment" placeholder="Management so far and plan" aria-labelledby="h-tx">${esc(p.treatment)}</textarea>
+    <div class="sec-h"><h3 class="hint" style="font-weight:700">Medicines: tap to add</h3><button class="ghost" id="medmanage">Edit buttons</button></div>
+    <div class="meds" id="meds"></div>
+    <div class="row" id="medadd" hidden><input id="mednew" class="grow" placeholder="New button, e.g. Ceftriaxone 1g IV daily" aria-label="New medicine button"><button id="medaddbtn">${icon("plus")}Add</button></div>
+    <ul class="medlist" id="medlist"></ul>
+    <label class="f"><span>Current plan</span><textarea id="plan" data-k="plan" rows="3" placeholder="e.g. Check corneal infiltrate daily, follow up on lab results">${esc(p.plan)}</textarea></label>
+  </section>
+
+  <section class="sec" aria-labelledby="h-ct">
+    <div class="sec-h"><h2 id="h-ct">CT reports</h2>
+      <label class="btn filebtn">${icon("doc")}Add CT report<input type="file" id="ctf" accept="application/pdf,image/*,.txt"></label></div>
+    <p class="hint">Upload the report as a PDF, a photo of the printout or a text file. The conclusion (or impression / comment) is found and copied in; edit it if needed.</p>
+    <div class="status" id="ct-st"></div>
+    <div class="stack" id="ctlist"></div>
+    <button class="ghost" id="ctpaste" style="align-self:flex-start">${icon("plus")}Paste report text instead</button>
+  </section>
+
+  <section class="sec" aria-labelledby="h-lab">
+    <div class="sec-h"><h2 id="h-lab">Lab results</h2>
+      <label class="btn filebtn">${icon("doc")}Add lab results<input type="file" id="labf" accept="application/pdf,image/*" multiple></label></div>
+    <p class="hint">Upload a photo or PDF of the results. Tap a page to see it full size, and note the key values underneath.</p>
+    <div class="status" id="lab-st"></div>
+    <div class="stack" id="lablist"></div>
+  </section>
+
+  <section class="sec" aria-labelledby="h-dp">
+    <h2 id="h-dp">Disposition</h2>
+    <div class="seg" role="radiogroup" aria-labelledby="h-dp">
+      ${Object.entries(DISPO).map(([k, v]) => `<label class="d-${k}"><input type="radio" name="dispo" value="${k}" ${p.dispo===k?"checked":""}>${esc(v)}</label>`).join("")}
+    </div>
+    <div class="grid2" style="grid-template-columns:minmax(0,3fr) minmax(0,2fr)">${field("dispoNote", "Details", p.dispoNote, 'placeholder="e.g. Transferred to Royal Infirmary ITU"')}${field("dispoDate", "Date", p.dispoDate, 'type="date"')}</div>
+  </section>
+
+  <section class="sec" aria-labelledby="h-ph">
+    <div class="sec-h"><h2 id="h-ph">Photos</h2>
+      <label class="btn filebtn">${icon("img")}Add photo<input type="file" id="phf" accept="image/*" multiple></label></div>
+    <p class="hint">Wounds, imaging on screen, drains. Up to 6 photos, stored compressed on this device.</p>
+    <div class="thumbs" id="phlist"></div>
+  </section>
+
+  <div id="delzone" style="margin-top:20px"><button class="ghost danger" id="del">Delete this patient</button></div>
+
+  <div class="actions"><span class="saved" id="saved">${p.updated ? "Saved " + fmtDateTime(p.updated) : ""}</span>
+    <button class="primary" id="done">${icon("sheet")}View summary</button></div>`;
+
+  let t;
+  const markSaved = () => { $("#saved").textContent = "Saved " + fmtDateTime(p.updated); };
+  const autosave = () => { clearTimeout(t); $("#saved").textContent = "Saving…"; t = setTimeout(async () => { await save(p); markSaved(); $(".brand").textContent = p.name || "New patient"; }, 400); };
+  $("#app").querySelectorAll("[data-k]").forEach(el => el.addEventListener("input", () => { p[el.dataset.k] = el.value; autosave(); }));
+  document.querySelectorAll('input[name="dispo"]').forEach(r => r.onchange = () => {
+    p.dispo = r.value; if (isPast(p)) toast("Will move to Past when you leave this record");
+    if (!p.dispoDate) { p.dispoDate = new Date().toISOString().slice(0,10); $("#dispoDate").value = p.dispoDate; } autosave(); });
+  $("#done").onclick = async () => { clearTimeout(t); await save(p); go("summary-" + p.id); };
+  $("#del").onclick = () => {
+    $("#delzone").innerHTML = `<div class="confirm">Delete ${esc(p.name || "this patient")} and all their data from this device?
+      <button class="danger" id="delyes">Delete</button><button id="delno">Keep</button></div>`;
+    $("#delno").onclick = () => renderEdit(id);
+    $("#delyes").onclick = async () => { await store.del(p.id); patients = patients.filter(x => x.id !== p.id); toast("Patient deleted"); go(""); };
+  };
+
+  // sticker
+  $("#stk").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return; e.target.value = "";
+    const st = $("#stk-st");
+    const prog = (s, v) => { st.className = "status"; st.innerHTML = `${esc(s)}… <span class="bar-p"><i style="width:${Math.round(v*100)}%"></i></span>`; };
+    try {
+      prog("Preparing photo", 0);
+      const img = await fileToImage(f);
+      p.sticker = drawScaled(img, 1200).toDataURL("image/jpeg", 0.85);
+      prog("Looking for the barcode", 0.1);
+      const bc = await findBarcode(img);
+      let text = "", got = {};
+      if (bc) {
+        text = await ocrImage(binarize(labelCrop(bc)), prog, "6");
+        got = parseSticker(text);
+      }
+      if (!got.name || !got.age || !got.sex) { // read the whole photo and fill whatever is still missing
+        const full = await ocrImage(prepForOcr(img), prog);
+        const more = parseSticker(full);
+        for (const k in more) if (!got[k]) got[k] = more[k];
+        text = (text ? text.trim() + "\n\n" : "") + full;
+      }
+      if (bc) got.mrn = bc.text.replace(/\D/g, "").replace(/^0+(?=\d)/, "") || got.mrn;
+      p.stickerText = (bc ? "Barcode: " + bc.text + "\n\n" : "") + text.trim();
+      Object.assign(p, got); await save(p);
+      renderEdit(id);
+      const n = Object.keys(got).length, s2 = $("#stk-st");
+      s2.className = n ? "status ok" : "status err";
+      const nice = {name:"name", mrn:"PMI", age:"age", sex:"gender", dob:"DOB", ward:"ward", consultant:"consultant", address:"address", nhs:"NHS no."};
+      s2.textContent = n ? `Filled ${Object.keys(got).map(k => nice[k] || k).join(", ")}${bc ? " (PMI read from the barcode)" : ""}. Check them against the label.`
+        : "Couldn't pick out any details. Try a sharper, closer photo, or type them in. The text that was read is below.";
+    } catch (err) {
+      console.error(err); st.className = "status err";
+      st.textContent = "The text reader didn't start (" + (err.message || err) + "). You can still type the details in.";
+      await save(p);
+    }
+  };
+
+  // CT
+  const drawCT = () => {
+    $("#ctlist").innerHTML = p.ct.length ? p.ct.map((c, i) => `<div class="ct" data-i="${i}">
+      <div class="grid2" style="grid-template-columns:minmax(0,3fr) minmax(0,2fr)">
+        <label class="f"><span>Study</span><input data-ck="title" value="${esc(c.title)}" placeholder="e.g. CT abdomen/pelvis"></label>
+        <label class="f"><span>Date</span><input data-ck="date" type="date" value="${esc(c.date)}"></label></div>
+      ${c.found ? `<span class="ct-found">Copied from the “${esc(c.found)}” section of ${esc(c.file || "the report")}</span>` : (c.raw && !c.conclusion ? `<span class="status err">No conclusion heading found in ${esc(c.file || "the report")}. Copy the relevant part from the report text below.</span>` : "")}
+      <label class="f"><span>Conclusion</span><textarea data-ck="conclusion" rows="4">${esc(c.conclusion)}</textarea></label>
+      ${c.raw !== undefined ? `<details ${c.pasting ? "open" : ""}><summary>${c.pasting ? "Paste the full report here" : "Full report text"}</summary>
+        <textarea data-ck="raw" rows="8" class="mono" style="font-size:13px;margin-top:6px">${esc(c.raw)}</textarea>
+        <button style="margin-top:8px" data-act="refind">Find conclusion again</button></details>` : ""}
+      <div class="row"><button class="ghost danger" data-act="rm">Remove report</button></div>
+    </div>`).join("") : "";
+    $("#ctlist").querySelectorAll(".ct").forEach(box => {
+      const c = p.ct[+box.dataset.i];
+      box.querySelectorAll("[data-ck]").forEach(el => el.addEventListener("input", () => { c[el.dataset.ck] = el.value; autosave(); }));
+      box.querySelector('[data-act="rm"]').onclick = () => { p.ct.splice(+box.dataset.i, 1); autosave(); drawCT(); };
+      const rf = box.querySelector('[data-act="refind"]');
+      if (rf) rf.onclick = () => { const r = findConclusion(c.raw || ""); c.pasting = false;
+        if (r) { c.conclusion = r.text; c.found = r.label; } else { c.found = ""; } autosave(); drawCT(); };
+    });
+  };
+  drawCT();
+  $("#ctpaste").onclick = () => { p.ct.push({ id: uid(), date: new Date().toISOString().slice(0,10), title: "CT", conclusion: "", raw: "", pasting: true }); drawCT(); $("#ctlist .ct:last-child details textarea").focus(); };
+  $("#ctf").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return; e.target.value = "";
+    const st = $("#ct-st");
+    const prog = (s, v) => { st.className = "status"; st.innerHTML = `${esc(s)}… <span class="bar-p"><i style="width:${Math.round(v*100)}%"></i></span>`; };
+    try {
+      prog("Opening report", 0);
+      let text;
+      if (/pdf$/i.test(f.type) || /\.pdf$/i.test(f.name)) text = await pdfText(f, prog);
+      else if (/^text\//.test(f.type) || /\.txt$/i.test(f.name)) text = await f.text();
+      else text = await ocrImage(prepForOcr(await fileToImage(f)), prog);
+      const r = findConclusion(text);
+      const title = (text.match(/\b(CT[^\n]{0,60})/) || [])[1]?.replace(/\s+/g, " ").trim() || "CT";
+      const dm = text.match(/(?:Date of (?:exam|examination|scan|study)|Exam(?:ination)? date|Study date|Scan date)[\s:.]*(\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4})/i);
+      const dd = dm && parseDob(dm[1]);
+      p.ct.push({ id: uid(), file: f.name, title: title.slice(0, 70), date: dd ? dd.toISOString().slice(0,10) : new Date().toISOString().slice(0,10),
+        conclusion: r ? r.text : "", found: r ? r.label : "", raw: text.trim() });
+      await save(p); drawCT(); markSaved();
+      st.className = r ? "status ok" : "status err";
+      st.textContent = r ? `Found the ${r.label} and copied it in.` : "Report read, but no Conclusion, Impression or Comment heading was found.";
+    } catch (err) { console.error(err); st.className = "status err"; st.textContent = "Couldn't read that file (" + (err.message || err) + "). Try a PDF or a sharper photo, or paste the text."; }
+  };
+
+  // medicines
+  p.meds = p.meds || [];
+  let managing = false;
+  const drawMeds = () => {
+    const btns = medButtons();
+    $("#meds").innerHTML = btns.length ? btns.map((m, i) => `<button class="med" data-mi="${i}" aria-pressed="${!managing && p.meds.includes(m)}">${esc(m)}${managing ? '<span class="x" aria-label="Delete button">×</span>' : ""}</button>`).join("")
+      : `<span class="hint">No medicine buttons yet. Tap <b>Edit buttons</b> to make some.</span>`;
+    $("#meds").querySelectorAll(".med").forEach(b => b.onclick = () => {
+      const m = btns[+b.dataset.mi];
+      if (managing) { saveMedButtons(btns.filter(x => x !== m)); drawMeds(); return; }
+      p.meds = p.meds.includes(m) ? p.meds.filter(x => x !== m) : [...p.meds, m]; autosave(); drawMeds();
+    });
+    $("#medlist").innerHTML = p.meds.map((m, i) => `<li><span>${esc(m)}</span><button class="ghost danger" data-ri="${i}" aria-label="Remove ${esc(m)}">Remove</button></li>`).join("");
+    $("#medlist").querySelectorAll("button").forEach(b => b.onclick = () => { p.meds.splice(+b.dataset.ri, 1); autosave(); drawMeds(); });
+    $("#medmanage").textContent = managing ? "Done" : "Edit buttons";
+    $("#medadd").hidden = !managing;
+  };
+  drawMeds();
+  $("#medmanage").onclick = () => { managing = !managing; drawMeds(); if (managing) $("#mednew").focus(); };
+  const addMed = () => { const v = $("#mednew").value.trim(); if (!v) return; const b = medButtons(); if (!b.includes(v)) saveMedButtons([...b, v]); $("#mednew").value = ""; drawMeds(); $("#mednew").focus(); };
+  $("#medaddbtn").onclick = addMed;
+  $("#mednew").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); addMed(); } };
+
+  // lab results
+  p.labs = p.labs || [];
+  const drawLabs = () => {
+    $("#lablist").innerHTML = p.labs.map((l, i) => `<div class="ct" data-i="${i}">
+      <div class="grid2" style="grid-template-columns:minmax(0,3fr) minmax(0,2fr)">
+        <label class="f"><span>Results</span><input data-lk="title" value="${esc(l.title)}" placeholder="e.g. FBC, U&amp;E, CRP"></label>
+        <label class="f"><span>Date</span><input data-lk="date" type="date" value="${esc(l.date)}"></label></div>
+      <div class="thumbs">${l.pages.map((src, j) => `<button class="thumb tap" data-pg="${j}" aria-label="Open page ${j+1}" style="padding:0"><img src="${src}" alt="Lab results page ${j+1}"></button>`).join("")}</div>
+      <label class="f"><span>Key results</span><textarea data-lk="notes" rows="2" placeholder="e.g. Hb 9.8, WCC 15.2, CRP 140">${esc(l.notes)}</textarea></label>
+      <div class="row"><button class="ghost danger" data-act="rm">Remove results</button></div></div>`).join("");
+    $("#lablist").querySelectorAll(".ct").forEach(box => {
+      const l = p.labs[+box.dataset.i];
+      box.querySelectorAll("[data-lk]").forEach(el => el.addEventListener("input", () => { l[el.dataset.lk] = el.value; autosave(); }));
+      box.querySelectorAll("[data-pg]").forEach(b => b.onclick = () => openViewer(l.pages, +b.dataset.pg));
+      box.querySelector('[data-act="rm"]').onclick = () => { p.labs.splice(+box.dataset.i, 1); autosave(); drawLabs(); };
+    });
+  };
+  drawLabs();
+  $("#labf").onchange = async e => {
+    const files = [...e.target.files]; e.target.value = "";
+    const st = $("#lab-st"); st.className = "status"; st.textContent = "Opening…";
+    try {
+      const pages = []; let text = "";
+      const prog = (s, v) => { st.className = "status"; st.innerHTML = `${esc(s)}… <span class="bar-p"><i style="width:${Math.round(v*100)}%"></i></span>`; };
+      for (const f of files) {
+        if (/pdf$/i.test(f.type) || /\.pdf$/i.test(f.name)) { pages.push(...await pdfPages(f, 6)); text += await pdfText(f, prog) + "\n"; }
+        else { const img = await fileToImage(f); pages.push(drawScaled(img, 2000).toDataURL("image/jpeg", 0.85)); text += await ocrImage(prepForOcr(img), prog, "6") + "\n"; }
+      }
+      const found = extractLabValues(text);
+      p.labs.push({ id: uid(), date: new Date().toISOString().slice(0,10), title: found.title, notes: found.notes, raw: text.trim(), pages, file: files.map(f => f.name).join(", ") });
+      await save(p); drawLabs(); markSaved();
+      st.className = found.count ? "status ok" : "status err";
+      st.textContent = `Added ${pages.length} page${pages.length === 1 ? "" : "s"}. ` + (found.count ? `Picked out ${found.count} result${found.count === 1 ? "" : "s"}; check them against the report.` : "No key values were recognised; type them in from the report.");
+    } catch (err) { console.error(err); st.className = "status err"; st.textContent = "Couldn't open that file (" + (err.message || err) + ")."; }
+  };
+
+  // photos
+  const drawPh = () => {
+    $("#phlist").innerHTML = p.photos.map((ph, i) => `<div class="thumb"><img src="${ph.src}" alt="${esc(ph.caption || "Clinical photo " + (i+1))}">
+      <button data-i="${i}" aria-label="Remove photo">Remove</button>
+      <input data-ci="${i}" value="${esc(ph.caption)}" placeholder="Caption" aria-label="Photo caption"></div>`).join("");
+    $("#phlist").querySelectorAll("button").forEach(b => b.onclick = () => { p.photos.splice(+b.dataset.i, 1); autosave(); drawPh(); });
+    $("#phlist").querySelectorAll("input").forEach(inp => inp.oninput = () => { p.photos[+inp.dataset.ci].caption = inp.value; autosave(); });
+  };
+  drawPh();
+  $("#phf").onchange = async e => {
+    const files = [...e.target.files]; e.target.value = "";
+    for (const f of files) { if (p.photos.length >= 6) { toast("Six photos is the limit for one patient"); break; }
+      try { p.photos.push({ src: await compressPhoto(f), caption: "", taken: new Date().toISOString() }); } catch { toast("Couldn't open " + f.name); } }
+    await save(p); drawPh(); markSaved();
+  };
+}
+
+/* ---------- medicine buttons (shared by all patients, kept on this device) ---------- */
+const MED_DEFAULTS = ["Paracetamol 1g PO 6-hourly", "Ibuprofen 400mg PO 8-hourly", "Tramadol 50mg PO 6-hourly PRN", "Morphine 5mg IV 4-hourly PRN",
+  "Ceftriaxone 1g IV daily", "Metronidazole 500mg IV 8-hourly", "Enoxaparin 40mg SC daily", "Omeprazole 40mg IV daily"];
+function medButtons() {
+  try { const v = JSON.parse(localStorage.getItem("wpl-meds")); if (Array.isArray(v)) return v; } catch {}
+  return medButtons._mem || MED_DEFAULTS.slice();
+}
+function saveMedButtons(list) { medButtons._mem = list; try { localStorage.setItem("wpl-meds", JSON.stringify(list)); } catch {} }
+
+async function pdfPages(file, max) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = abs("lib/pdf.worker.min.js");
+  const pdf = await pdfjsLib.getDocument({data: await file.arrayBuffer()}).promise, out = [];
+  for (let n = 1; n <= Math.min(pdf.numPages, max); n++) {
+    const page = await pdf.getPage(n), vp0 = page.getViewport({scale: 1}), vp = page.getViewport({scale: 1600 / vp0.width});
+    const c = document.createElement("canvas"); c.width = vp.width; c.height = vp.height;
+    const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+    await page.render({canvasContext: g, viewport: vp}).promise; out.push(c.toDataURL("image/jpeg", 0.85));
+  }
+  return out;
+}
+function openViewer(pages, start = 0) {
+  const v = document.createElement("div"); v.className = "viewer"; v.setAttribute("role", "dialog"); v.setAttribute("aria-label", "Full size view");
+  v.innerHTML = `<div class="vb"><button id="vclose">Close</button></div><div class="vi">${pages.map((src, i) => `<img src="${src}" alt="Page ${i+1}" data-i="${i}">`).join("")}</div>`;
+  document.body.appendChild(v); document.body.style.overflow = "hidden";
+  const close = () => { v.remove(); document.body.style.overflow = ""; removeEventListener("keydown", esc_); };
+  const esc_ = e => { if (e.key === "Escape") close(); };
+  addEventListener("keydown", esc_); v.querySelector("#vclose").onclick = close; v.querySelector("#vclose").focus();
+  const img = v.querySelector(`img[data-i="${start}"]`); if (img) setTimeout(() => img.scrollIntoView(), 50);
+}
+
+/* ---------- lab values (read on the device) ---------- */
+const LAB_TESTS = [
+  ["Hb", /\b(?:Hb|HGB|Ha?emoglobin)\b/i, /(\d{1,2}(?:[.,]\d{1,2})?)/, 2, 25],
+  ["WCC", /\b(?:WCC|WBC|White\s*(?:cell|blood\s*cell)s?(?:\s*count)?|Leu[ck]ocytes?)\b/i, /(\d{1,3}(?:[.,]\d{1,2})?)/, 0.1, 300],
+  ["Plt", /\b(?:Plt|PLT|Platelets?(?:\s*count)?|Thrombocytes?)\b/i, /(\d{1,4})/, 1, 2500],
+  ["Urea", /\b(?:Urea|BUN)\b/i, /(\d{1,3}(?:[.,]\d{1,2})?)/, 0.5, 60],
+  ["Creat", /\b(?:Creat(?:inine)?)\b/i, /(\d{1,4})/, 10, 3000],
+  ["Na", /(?:\bSodium\b|\bNa\b\+?)/i, /(\d{3})/, 90, 200],
+  ["K", /(?:\bPotassium\b|\bK\b\+?)/, /(\d(?:[.,]\d{1,2})?)/, 1, 10]
+];
+function extractLabValues(raw) {
+  const lines = raw.replace(/\r/g, "").split("\n").map(l => l.replace(/[ \t]+/g, " ").trim());
+  const got = [];
+  for (const [name, re, numRe, lo, hi] of LAB_TESTS) {
+    for (const l of lines) {
+      const m = l.match(re); if (!m) continue;
+      const after = l.slice(m.index + m[0].length).replace(/^[^\d]{0,30}?(?=\d)/, "");
+      if (/^(?:\d+\s*[-–]\s*\d)/.test(after) && !/\d\s+\d/.test(after)) continue; // only a reference range on this line
+      const n = after.match(new RegExp("^" + numRe.source));
+      if (!n) continue;
+      const v = parseFloat(n[1].replace(",", "."));
+      if (v < lo || v > hi) continue;
+      const flag = /^\S+\s*\b([HL])\b/.exec(after) || /^\S+\s*(\*|↑|↓)/.exec(after);
+      got.push(`${name} ${n[1].replace(",", ".")}${flag ? (flag[1] === "H" || flag[1] === "↑" ? " (H)" : flag[1] === "L" || flag[1] === "↓" ? " (L)" : " (*)") : ""}`);
+      break;
+    }
+  }
+  // microbiology: culture, Gram stain, organism and sensitivities
+  const micro = []; let take = 0;
+  for (const l of lines) {
+    if (/\b(cultures?|gram\s*stain|gram[-\s]?(positive|negative)|organisms?|isolated|no\s+growth|sensitivit|susceptib|MC\s*&\s*S|resistant)\b/i.test(l)) take = 6;
+    if (/^(authori[sz]ed|reported|verified|signed|page\s+\d|printed|end of report)/i.test(l)) { take = 0; continue; }
+    if (take > 0 && l) { micro.push(l); take--; } else if (!l) take = Math.min(take, 1);
+    if (micro.join(" ").length > 500) break;
+  }
+  const notes = [got.join(", "), micro.length ? "Micro: " + micro.join("; ") : ""].filter(Boolean).join("\n");
+  const title = [got.some(g => /^(Hb|WCC|Plt)/.test(g)) ? "FBC" : "", got.some(g => /^(Urea|Creat|Na|K) /.test(g)) ? "U&E" : "", micro.length ? "Micro" : ""].filter(Boolean).join(", ");
+  return { notes, title, count: got.length + (micro.length ? 1 : 0) };
+}
+
+/* ---------- ward round list ---------- */
+function wardRound(active) {
+  const panel = $("#wrpanel");
+  if (!panel.hidden) { panel.hidden = true; return; }
+  const order = [...active.filter(p => wardGroup(p) === "in"), ...active.filter(p => wardGroup(p) === "out"), ...active.filter(p => wardGroup(p) === "none")];
+  panel.innerHTML = `<div class="sec-h"><h2>Ward round list</h2><button class="ghost" id="wrall">Select none</button></div>
+    <p class="hint">Tick the patients to include.</p>
+    <div class="stack" id="wrpick" style="gap:6px">${order.map(p => `<label class="row" style="gap:10px;font-size:15px"><input type="checkbox" value="${p.id}" checked style="width:22px;height:22px;flex:none">
+      <span class="grow">${esc(p.name || "Unnamed")} <span class="hint" style="display:inline">${esc([p.ward, wardGroup(p) === "in" ? "Inpatient" : wardGroup(p) === "out" ? "Outlier" : ""].filter(Boolean).join(" · "))}</span></span></label>`).join("") || `<span class="hint">No active patients.</span>`}</div>
+    <div class="row"><button class="primary" id="wrmake">${icon("doc")}Create handover</button><button class="ghost" id="wrclose">Close</button></div>
+    <textarea id="wrtext" hidden aria-label="Ward round handover" style="min-height:260px"></textarea>
+    <div class="row" id="wrcopyrow" hidden><button class="primary" id="wrcopy">${icon("copy")}Copy list</button></div>`;
+  panel.hidden = false;
+  const boxes = () => [...panel.querySelectorAll('#wrpick input[type="checkbox"]')];
+  $("#wrall").onclick = () => { const any = boxes().some(b => b.checked); boxes().forEach(b => b.checked = !any); $("#wrall").textContent = any ? "Select all" : "Select none"; };
+  $("#wrclose").onclick = () => { panel.hidden = true; };
+  $("#wrmake").onclick = () => {
+    const ids = new Set(boxes().filter(b => b.checked).map(b => b.value));
+    const chosen = order.filter(p => ids.has(p.id));
+    if (!chosen.length) { toast("Tick at least one patient"); return; }
+    const sec = (title, list) => list.length ? [title, ...list.map((p, i) => `${i + 1}. ${p.ward ? "[" + p.ward + "] " : ""}${handover(p, { ward: false })}`)].join("\n\n") : "";
+    const txt = [`Ward round list, ${fmtDate(new Date().toISOString())}`,
+      sec(`INPATIENTS (ward ${MAIN_WARD})`, chosen.filter(p => wardGroup(p) === "in")),
+      sec("OUTLIERS", chosen.filter(p => wardGroup(p) !== "in"))].filter(Boolean).join("\n\n");
+    $("#wrtext").value = txt; $("#wrtext").hidden = false; $("#wrcopyrow").hidden = false;
+  };
+  $("#wrcopy").onclick = () => navigator.clipboard.writeText($("#wrtext").value).then(() => toast("Ward round list copied"), () => { $("#wrtext").focus(); $("#wrtext").select(); toast("Select all and copy"); });
+}
+
+/* ---------- handover (written on the device from the record, no AI service) ---------- */
+function handover(p, opts = {}) {
+  const sentence = s => { s = (s || "").trim().replace(/\s+/g, " "); if (!s) return ""; s = s[0].toUpperCase() + s.slice(1); return /[.!?]$/.test(s) ? s : s + "."; };
+  const lowerFirst = s => { s = (s || "").trim().replace(/[.\s]+$/, ""); return s && !/^[A-Z]{2}/.test(s) ? s[0].toLowerCase() + s.slice(1) : s; };
+  const yrs = parseInt(ageOf(p), 10);
+  const who = [isNaN(yrs) ? "" : yrs + "y old", { M: "male", F: "female" }[p.sex] || "patient"].filter(Boolean).join(" ");
+  const parts = [];
+  parts.push(sentence(`${who}${p.name ? " (" + p.name + (p.mrn ? ", PMI " + p.mrn : "") + ")" : ""}, ${p.comorbid ? "known with " + lowerFirst(p.comorbid) : "no comorbids"}${p.diagnosis ? ", with " + lowerFirst(p.diagnosis) : ""}`));
+  if (p.ward && opts.ward !== false) parts.push(sentence(`${wardGroup(p) === "in" ? "Inpatient in ward" : "Outlier in ward"} ${p.ward}${p.admitted ? ", admitted " + fmtDate(p.admitted) : ""}`));
+  const meds = (p.meds || []).join(", ");
+  if (meds || p.treatment) parts.push(sentence(`Currently on ${[meds, lowerFirst(p.treatment)].filter(Boolean).join("; ")}`.replace(/^Currently on ;?\s*/, "Currently on ")));
+  const ct = p.ct.filter(c => c.conclusion).at(-1);
+  if (ct) parts.push(sentence(`${ct.title && ct.title !== "CT" ? ct.title : "CT"}${ct.date ? " (" + fmtDate(ct.date) + ")" : ""}: ${lowerFirst(ct.conclusion.replace(/\n+/g, " "))}`));
+  const lab = (p.labs || []).filter(l => l.notes).at(-1);
+  if (lab) parts.push(sentence(`Labs${lab.date ? " (" + fmtDate(lab.date) + ")" : ""}: ${lab.notes.replace(/\s*\n+\s*/g, ". ")}`));
+  if (p.plan) parts.push(sentence(`Current plan: ${lowerFirst(p.plan)}`));
+  if (p.dispo) parts.push(sentence(`${DISPO[p.dispo]}${p.dispoNote ? ": " + lowerFirst(p.dispoNote) : ""}`));
+  return parts.join(" ");
+}
+
+/* ---------- summary view ---------- */
+function summaryText(p) {
+  const L = [];
+  L.push(`${p.name || "Unnamed"}  ${[ageOf(p), p.sex].filter(Boolean).join(" ")}`);
+  L.push(`PMI ${p.mrn || "-"}${p.ward ? "  " + p.ward : ""}${p.admitted ? "  Admitted " + fmtDate(p.admitted) : ""}`);
+  L.push("", "DIAGNOSIS", p.diagnosis || "-", "Comorbidities: " + (p.comorbid || "none"), "", "TREATMENT", p.treatment || "-");
+  if ((p.meds || []).length) L.push(...p.meds.map(m => "- " + m));
+  if (p.plan) L.push("", "PLAN", p.plan);
+  L.push("", "CT");
+  if (p.ct.length) p.ct.forEach(c => L.push(`${fmtDate(c.date)} ${c.title || "CT"}: ${c.conclusion || "-"}`)); else L.push("-");
+  if ((p.labs || []).length) { L.push("", "LABS"); p.labs.forEach(l => L.push(`${fmtDate(l.date)} ${l.title || "Labs"}${l.notes ? ": " + l.notes : ""}`)); }
+  L.push("", "DISPOSITION", (DISPO[p.dispo] || "-") + (p.dispoNote ? ": " + p.dispoNote : "") + (p.dispoDate ? " (" + fmtDate(p.dispoDate) + ")" : ""));
+  return L.join("\n");
+}
+function renderSummary(id) {
+  const p = patients.find(x => x.id === id); if (!p) return go("");
+  $("#topbar").innerHTML = `<button class="ghost" id="back" aria-label="Back to patient list">${icon("back")}</button>
+    <p class="brand">Summary</p>
+    <button id="toedit">${icon("edit")}Edit</button>`;
+  $("#back").onclick = () => go(isPast(p) ? "past" : "");
+  $("#toedit").onclick = () => go("edit-" + p.id);
+  const v = (s) => s ? `<div class="v">${esc(s)}</div>` : `<div class="v none">Not recorded</div>`;
+  $("#app").innerHTML = `
+  <article class="sheet">
+    <div class="sheet-h">
+      <h1>${esc(p.name || "Unnamed patient")}</h1>
+      <span class="pill d-${p.dispo || "none"}">${esc(DISPO[p.dispo] || "No disposition")}</span>
+      <dl class="ids">
+        <div><dt>PMI</dt><dd class="mono">${esc(p.mrn || "–")}</dd></div>
+        <div><dt>Age</dt><dd class="mono">${esc(ageOf(p) || "–")}${p.sex ? ` · ${esc(p.sex)}` : ""}</dd></div>
+
+        ${p.ward ? `<div><dt>Ward</dt><dd>${esc(p.ward)} · ${wardGroup(p) === "in" ? "Inpatient" : "Outlier"}</dd></div>` : ""}
+
+        ${p.admitted ? `<div><dt>Admitted</dt><dd>${esc(fmtDate(p.admitted))}</dd></div>` : ""}
+      </dl>
+    </div>
+    <div class="sheet-b">
+      <section class="blk"><h2>Diagnosis</h2><div class="v${p.diagnosis ? "" : " none"}">${esc(p.diagnosis || "Not recorded")}<div style="color:var(--muted);font-size:14px;margin-top:4px">Comorbidities: ${esc(p.comorbid || "none")}</div></div></section>
+      <section class="blk"><h2>Treatment</h2><div class="v${p.treatment || (p.meds||[]).length ? "" : " none"}">${p.treatment || (p.meds||[]).length ? esc(p.treatment) + ((p.meds||[]).length ? `<ul style="margin:${p.treatment ? "8px" : "0"} 0 0;padding-left:20px;white-space:normal">${p.meds.map(m => `<li>${esc(m)}</li>`).join("")}</ul>` : "") : "Not recorded"}</div></section>
+      <section class="blk"><h2>CT</h2><div class="v${p.ct.length ? "" : " none"}">${p.ct.length ? p.ct.map(c => `<blockquote class="ctq"><div class="src">${esc(fmtDate(c.date))} · ${esc(c.title || "CT")}</div>${esc(c.conclusion || "No conclusion recorded")}</blockquote>`).join("") : "No CT reports"}</div></section>
+      <section class="blk"><h2>Labs</h2>${(p.labs||[]).length ? `<div class="v">${p.labs.map((l, li) => `<div class="ctq"><div class="src">${esc(fmtDate(l.date))}${l.title ? " · " + esc(l.title) : ""}</div>${l.notes ? esc(l.notes) : ""}<div class="thumbs" style="margin-top:6px;white-space:normal">${l.pages.map((src, j) => `<button class="thumb tap" data-lab="${li}" data-pg="${j}" style="padding:0" aria-label="Open lab page ${j+1}"><img src="${src}" alt="Lab results page ${j+1}"></button>`).join("")}</div></div>`).join("")}</div>` : `<div class="v none">No lab results</div>`}</section>
+      <section class="blk"><h2>Plan</h2>${v(p.plan)}</section>
+      <section class="blk"><h2>Disposition</h2><div class="v">${p.dispo ? `<b>${esc(DISPO[p.dispo])}</b>${p.dispoDate ? " · " + esc(fmtDate(p.dispoDate)) : ""}${p.dispoNote ? "\n" + esc(p.dispoNote) : ""}` : `<span class="none" style="color:var(--muted);font-style:italic">Not recorded</span>`}</div></section>
+      ${p.photos.length ? `<section class="blk"><h2>Photos</h2><div class="thumbs">${p.photos.map((ph, i) => `<figure><div class="thumb"><img src="${ph.src}" alt="${esc(ph.caption || "Clinical photo " + (i+1))}"></div>${ph.caption ? `<figcaption>${esc(ph.caption)}</figcaption>` : ""}</figure>`).join("")}</div></section>` : ""}
+    </div>
+    ${(p.history || []).length ? `<section class="blk" style="border-top:1px solid var(--line)"><h2>Previous admissions</h2><div class="v">${p.history.map(h => `<div class="ctq"><div class="src">${esc(fmtDate(h.admitted))} to ${esc(fmtDate(h.date) || "?")} · ${esc(DISPO[h.dispo] || "")}${h.ward ? " · " + esc(h.ward) : ""}</div>${esc(h.diagnosis || "")}${h.note ? "\n" + esc(h.note) : ""}</div>`).join("")}</div></section>` : ""}
+    <div class="foot">Last updated ${esc(fmtDateTime(p.updated))}${p.example ? " · This is a made-up example record" : ""}</div>
+  </article>
+  <div class="row" style="margin-top:14px">
+    <button class="primary" id="hobtn">${icon("doc")}Handover</button>
+    <button id="copy">${icon("copy")}Copy as text</button>
+    ${isPast(p) ? `<button id="reactivate">${icon("back")}Bring back to active patients</button>` : ""}
+  </div>
+  <div class="ho" id="ho" hidden>
+    <div class="sec-h"><h2>Handover</h2><span class="hint">Edit before sending if needed</span></div>
+    <textarea id="hotext" aria-label="Handover text"></textarea>
+    <div class="row"><button class="primary" id="hocopy">${icon("copy")}Copy handover</button><button class="ghost" id="hoclose">Close</button></div>
+  </div>
+  <textarea id="copybox" class="mono" rows="10" style="margin-top:12px;font-size:13px" hidden aria-label="Summary text">${esc(summaryText(p))}</textarea>`;
+  if ($("#reactivate")) $("#reactivate").onclick = async () => {
+    p.history = [...(p.history || []), { dispo: p.dispo, note: p.dispoNote, date: p.dispoDate, ward: p.ward, admitted: p.admitted, diagnosis: p.diagnosis }];
+    p.dispo = ""; p.dispoNote = ""; p.dispoDate = ""; p.admitted = new Date().toISOString().slice(0,10);
+    await save(p); toast("Back on the active list. Update the ward and admission details."); go("edit-" + p.id);
+  };
+  $("#app").querySelectorAll("[data-lab]").forEach(b => b.onclick = () => openViewer(p.labs[+b.dataset.lab].pages, +b.dataset.pg));
+  $("#hobtn").onclick = () => { $("#hotext").value = handover(p); $("#ho").hidden = false; $("#ho").scrollIntoView({behavior: "smooth", block: "start"}); };
+  $("#hoclose").onclick = () => { $("#ho").hidden = true; };
+  $("#hocopy").onclick = () => {
+    const txt = $("#hotext").value;
+    navigator.clipboard.writeText(txt).then(() => toast("Handover copied"), () => { $("#hotext").focus(); $("#hotext").select(); toast("Select all and copy"); });
+  };
+  $("#copy").onclick = () => {
+    const txt = summaryText(p);
+    navigator.clipboard.writeText(txt).then(() => toast("Summary copied"), () => {
+      const b = $("#copybox"); b.hidden = false; b.focus(); b.select(); toast("Select all and copy");
+    });
+  };
+}
+
+/* ---------- boot ---------- */
+window.__wpl = { parseSticker, findConclusion };
+load().then(route);
+</script>
