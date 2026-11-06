@@ -588,7 +588,7 @@ function renderList(past = false) {
   const counts = { all: active.length, in: active.filter(p => wardGroup(p) === "in").length, out: active.filter(p => wardGroup(p) === "out").length };
   $("#app").innerHTML = `
     ${past ? `<p class="hint" style="margin-top:16px">Discharged and transferred patients. Open a file to read it, or bring the patient back to the active list if they return.</p>`
-      : `${(() => { const b = backupState(); const old = !b.last || (Date.now() - new Date(b.last)) > 20 * 3600e3;
+      : `${(() => { const b = backupState(); const old = !b.last || (Date.now() - new Date(b.last)) > 7 * 864e5;
           if (b.real && b.changed && old) return `<div class="notice" style="background:var(--amber-soft);color:var(--fg);align-items:center;flex-wrap:wrap">${icon("save")}<div class="grow"><b>${b.last ? "Last backup " + esc(fmtDateTime(b.last)) : "No backup yet"}.</b> ${b.changed} patient${b.changed === 1 ? " has" : "s have"} changed since. Save a backup to a folder on the phone.</div><button class="primary" id="bknow">Back up now</button></div>`;
           if (!b.real) return `<div class="notice" style="align-items:center;flex-wrap:wrap">${icon("doc")}<div class="grow"><b>Starting fresh?</b> If you have a backup file, restore it to bring your patients back.</div><label class="btn primary filebtn">Restore from backup<input type="file" id="imp2" accept="application/json,.json"></label></div>`;
           return ""; })()}
@@ -1139,13 +1139,17 @@ function renderSummary(id) {
 
 /* ---------- boot ---------- */
 window.__wpl = { parseSticker, findConclusion };
-load().then(() => { route(); dailyBackupPrompt(); });
-function dailyBackupPrompt() {
-  const today = new Date().toDateString(), b = backupState();
-  if (!b.real || !b.changed || (b.last && new Date(b.last).toDateString() === today) || lsGet("wpl-prompted") === today) return;
+load().then(() => { route(); backupPrompt(); });
+function backupPrompt() {
+  // Weekly: the first time the app is opened on a Friday (or any day if the last backup is over a week old).
+  const now = new Date(), today = now.toDateString(), b = backupState();
+  const friday = new Date(now); friday.setHours(0, 0, 0, 0); friday.setDate(friday.getDate() - ((friday.getDay() - 5 + 7) % 7));
+  const due = !b.last || new Date(b.last) < friday;
+  const overdue = !b.last || (now - new Date(b.last)) > 7 * 864e5;
+  if (!b.real || !b.changed || !due || !(now.getDay() === 5 || overdue) || lsGet("wpl-prompted") === today) return;
   lsSet("wpl-prompted", today);
-  const m = document.createElement("div"); m.className = "bkmodal"; m.setAttribute("role", "dialog"); m.setAttribute("aria-label", "Daily backup");
-  m.innerHTML = `<div class="bkcard"><h2 style="color:var(--fg);font-size:18px;letter-spacing:0;text-transform:none">Daily backup</h2>
+  const m = document.createElement("div"); m.className = "bkmodal"; m.setAttribute("role", "dialog"); m.setAttribute("aria-label", "Weekly backup");
+  m.innerHTML = `<div class="bkcard"><h2 style="color:var(--fg);font-size:18px;letter-spacing:0;text-transform:none">Weekly backup</h2>
     <p style="margin:0">${b.changed} patient${b.changed === 1 ? " has" : "s have"} changed since ${b.last ? "the last backup on " + esc(fmtDateTime(b.last)) : "you started"}. Tap <b>Back up now</b>, then <b>Save to Files</b>.</p>
     <div class="row"><button class="primary" id="bkm-yes">${icon("save")}Back up now</button><button class="ghost" id="bkm-no">Later</button></div></div>`;
   document.body.appendChild(m);
