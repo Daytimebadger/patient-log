@@ -1224,8 +1224,7 @@ function handover(p, opts = {}) {
   const lowerFirst = s => { s = (s || "").trim().replace(/[.\s]+$/, ""); return s && !/^[A-Z]{2}/.test(s) ? s[0].toLowerCase() + s.slice(1) : s; };
   const yrs = parseInt(ageOf(p), 10);
   const who = [isNaN(yrs) ? "" : yrs + "y", { M: "male", F: "female" }[p.sex] || ""].filter(Boolean).join(" ");
-  const title = { M: "Mr", F: "Ms" }[p.sex] || "";
-  const head = [who, p.name ? [title, p.name.trim()].filter(Boolean).join(" ") : "", admDay(p) ? "day " + admDay(p) + " of admission" : ""].filter(Boolean).join(" - ");
+  const head = [who, (p.name || "").trim(), admDay(p) ? "day " + admDay(p) + " of admission" : ""].filter(Boolean).join(" - ");
   const parts = [];
   if (head) parts.push(head + ".");
   parts.push(sentence(`${p.comorbid ? "Known with " + lowerFirst(p.comorbid) : "No comorbids"}${p.diagnosis ? ", with " + lowerFirst(p.diagnosis) : ""}`));
