@@ -150,6 +150,8 @@ figcaption{font-size:13px;color:var(--muted);margin-top:4px}
 .viewer .vb{display:flex;justify-content:flex-end}
 .viewer .vi{flex:1;overflow:auto;display:flex;flex-direction:column;gap:10px;align-items:center}
 .viewer img{max-width:100%;height:auto}
+.bkmodal{position:fixed;inset:0;z-index:25;background:rgba(10,15,25,.45);display:flex;align-items:flex-end;justify-content:center;padding:0 max(12px,env(safe-area-inset-right,0px)) calc(12px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px))}
+.bkcard{background:var(--surface);color:var(--fg);border-radius:16px;padding:18px;max-width:520px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:0 10px 40px rgba(0,0,0,.25)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:14px;font-size:14px;font-weight:700;z-index:20;max-width:calc(100% - 32px)}
 .confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--red-soft);color:var(--red);border-radius:8px;padding:10px 12px;font-size:14px;font-weight:700}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -1128,5 +1130,18 @@ function renderSummary(id) {
 
 /* ---------- boot ---------- */
 window.__wpl = { parseSticker, findConclusion };
-load().then(route);
+load().then(() => { route(); dailyBackupPrompt(); });
+function dailyBackupPrompt() {
+  const today = new Date().toDateString(), b = backupState();
+  if (!b.real || !b.changed || (b.last && new Date(b.last).toDateString() === today) || lsGet("wpl-prompted") === today) return;
+  lsSet("wpl-prompted", today);
+  const m = document.createElement("div"); m.className = "bkmodal"; m.setAttribute("role", "dialog"); m.setAttribute("aria-label", "Daily backup");
+  m.innerHTML = `<div class="bkcard"><h2 style="color:var(--fg);font-size:18px;letter-spacing:0;text-transform:none">Daily backup</h2>
+    <p style="margin:0">${b.changed} patient${b.changed === 1 ? " has" : "s have"} changed since ${b.last ? "the last backup on " + esc(fmtDateTime(b.last)) : "you started"}. Tap <b>Back up now</b>, then <b>Save to Files</b>.</p>
+    <div class="row"><button class="primary" id="bkm-yes">${icon("save")}Back up now</button><button class="ghost" id="bkm-no">Later</button></div></div>`;
+  document.body.appendChild(m);
+  m.querySelector("#bkm-no").onclick = () => m.remove();
+  m.querySelector("#bkm-yes").onclick = async () => { m.remove(); await exportBackup(); };
+  m.querySelector("#bkm-yes").focus();
+}
 </script>
