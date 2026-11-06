@@ -161,6 +161,13 @@ figcaption{font-size:13px;color:var(--muted);margin-top:4px}
 .viewer img{max-width:100%;height:auto}
 .bkmodal{position:fixed;inset:0;z-index:25;background:rgba(10,15,25,.45);display:flex;align-items:flex-end;justify-content:center;padding:0 max(12px,env(safe-area-inset-right,0px)) calc(12px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px))}
 .bkcard{background:var(--surface);color:var(--fg);border-radius:16px;padding:18px;max-width:520px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:0 10px 40px rgba(0,0,0,.25)}
+.olist{list-style:none;margin:16px 0 0;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.olist>li{border-bottom:1px solid var(--line)}
+.olist>li:last-child{border-bottom:0}
+.orow{display:flex;align-items:center;gap:12px;width:100%;padding:14px 16px;min-height:58px;border:0;border-radius:0;background:transparent;text-align:left;font-weight:700;justify-content:flex-start;position:relative}
+.orow .grow{display:flex;flex-direction:column;gap:2px}
+.orow .grow small{font-weight:400;color:var(--muted);font-size:13px}
+.opanel{padding:0 16px 16px;display:flex;flex-direction:column;gap:10px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:14px;font-size:14px;font-weight:700;z-index:20;max-width:calc(100% - 32px)}
 .confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--red-soft);color:var(--red);border-radius:8px;padding:10px 12px;font-size:14px;font-weight:700}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -176,6 +183,8 @@ figcaption{font-size:13px;color:var(--muted);margin-top:4px}
   <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4H4v12h4"/></symbol>
   <symbol id="i-save" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
   <symbol id="i-img" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 8"/></symbol>
 </svg>
 
@@ -569,6 +578,7 @@ function route() {
   if ((m = h.match(/^edit-([a-z0-9]+)$/))) return renderEdit(m[1]);
   if ((m = h.match(/^summary-([a-z0-9]+)$/))) return renderSummary(m[1]);
   if (h === "past") return renderList(true);
+  if (h === "options") return renderOptions();
   return renderList();
 }
 const go = h => { if (location.hash.slice(1) === h) route(); else location.hash = h; };
@@ -576,23 +586,21 @@ addEventListener("hashchange", () => { window.scrollTo(0, 0); route(); });
 
 /* ---------- list view ---------- */
 let filter = { q: "", d: "all" };
-const MAIN_WARD = "267";
-const wardGroup = p => !(p.ward || "").trim() ? "none" : new RegExp("(^|\\D)" + MAIN_WARD + "(\\D|$)").test(p.ward) ? "in" : "out";
+const mainWard = () => { try { return localStorage.getItem("wpl-main-ward") || "267"; } catch { return "267"; } };
+const wardGroup = p => !(p.ward || "").trim() ? "none" : new RegExp("(^|\\D)" + mainWard().replace(/[^\w]/g, "") + "(\\D|$)", "i").test(p.ward) ? "in" : "out";
 const isPast = p => p.dispo === "discharged" || p.dispo === "transferred";
 function renderList(past = false) {
   $("#topbar").innerHTML = past
-    ? `<button class="ghost" id="back" aria-label="Back to active patients">${icon("back")}</button><p class="brand">Past patients</p>`
+    ? `<button class="ghost" id="back" aria-label="Back to settings">${icon("back")}</button><p class="brand">Past patients</p>`
     : `<p class="brand">Ward Patient Log</p><button class="primary" id="new">${icon("plus")}New patient</button>`;
-  if (past) $("#back").onclick = () => go(""); else $("#new").onclick = async () => { const p = blank(); await save(p); go("edit-" + p.id); };
+  if (past) $("#back").onclick = () => go("options"); else $("#new").onclick = async () => { const p = blank(); await save(p); go("edit-" + p.id); };
   const active = patients.filter(p => !isPast(p)), pastList = patients.filter(isPast);
   const counts = { all: active.length, in: active.filter(p => wardGroup(p) === "in").length, out: active.filter(p => wardGroup(p) === "out").length };
   $("#app").innerHTML = `
     ${past ? `<p class="hint" style="margin-top:16px">Discharged and transferred patients. Open a file to read it, or bring the patient back to the active list if they return.</p>`
-      : `${(() => { const b = backupState(); const old = !b.last || (Date.now() - new Date(b.last)) > 7 * 864e5;
-          if (b.real && b.changed && old) return `<div class="notice" style="background:var(--amber-soft);color:var(--fg);align-items:center;flex-wrap:wrap">${icon("save")}<div class="grow"><b>${b.last ? "Last backup " + esc(fmtDateTime(b.last)) : "No backup yet"}.</b> ${b.changed} patient${b.changed === 1 ? " has" : "s have"} changed since. Save a backup to a folder on the phone.</div><button class="primary" id="bknow">Back up now</button></div>`;
+      : `${(() => { const b = backupState();
           if (!b.real) return `<div class="notice" style="align-items:center;flex-wrap:wrap">${icon("doc")}<div class="grow"><b>Starting fresh?</b> If you have a backup file, restore it to bring your patients back.</div><label class="btn primary filebtn">Restore from backup<input type="file" id="imp2" accept="application/json,.json"></label></div>`;
-          return ""; })()}
-      <div class="notice">${icon("lock")}<div><b>Stored only in this browser on this device.</b> Nothing is sent to a server, and sticker and report reading happen on the device. Use test data until your information governance team has approved this for real patients.${store.persistent ? "" : " <b>This browser is blocking storage, so records will be lost when you close the page.</b>"}</div></div>`}
+          return ""; })()}${store.persistent ? "" : `<div class="notice" style="background:var(--red-soft)">${icon("lock")}<div><b>This browser is blocking storage, so records will be lost when you close the app.</b></div></div>`}`}
     <input class="search" id="q" type="search" placeholder="Search name, PMI, diagnosis" value="${esc(filter.q)}" aria-label="Search patients">
     ${past ? "" : `<div class="chips" role="radiogroup" aria-label="Show patients">
       ${[["all", "All"], ["in", "Inpatients"], ["out", "Outliers"]].map(([k, v]) =>
@@ -601,12 +609,7 @@ function renderList(past = false) {
     ${past ? "" : `<button id="wr" style="margin-top:12px">${icon("sheet")}Ward round list</button>
     <div class="ho" id="wrpanel" hidden></div>`}
     <div id="plist"></div>
-    ${past ? "" : `<button class="pastbtn" id="topast">${icon("doc")}<span class="grow">Past</span><span class="hint">Discharged and transferred</span><span class="mono">${pastList.length}</span></button>
-    <div class="row" style="margin-top:16px">
-      <button id="exp">${icon("save")}Save a backup file</button>
-      <span class="hint">${(() => { const b = backupState(); return b.last ? "Last backup " + esc(fmtDateTime(b.last)) : "Not backed up yet"; })()}</span>
-      <label class="btn filebtn">${icon("doc")}Restore from backup<input type="file" id="imp" accept="application/json,.json"></label>
-    </div>`}`;
+    ${past ? "" : `<button class="pastbtn" id="toopts">${icon("gear")}<span class="grow">Settings</span><span class="hint">Backup, restore, past patients, medicines</span></button>`}`;
   const draw = () => {
     const q = filter.q.toLowerCase();
     const base = past ? pastList : active.filter(p => filter.d === "all" || wardGroup(p) === filter.d);
@@ -618,7 +621,7 @@ function renderList(past = false) {
         <span class="meta"><span class="mono">${p.mrn ? "PMI " + esc(p.mrn) : "No PMI"}</span>${ageOf(p) || p.sex ? `<span>${esc([ageOf(p), p.sex].filter(Boolean).join(" · "))}</span>` : ""}${p.ward ? `<span>${esc(p.ward)}</span>` : ""}${p.example ? `<span class="tag">Example</span>` : ""}</span>
         ${p.diagnosis ? `<span class="dx">${esc(p.diagnosis)}</span>` : ""}
       </button></li>`;
-    const groups = past ? [["", "", rows]] : [["Inpatients", `Ward ${MAIN_WARD}`, rows.filter(p => wardGroup(p) === "in")],
+    const groups = past ? [["", "", rows]] : [["Inpatients", `Ward ${esc(mainWard())}`, rows.filter(p => wardGroup(p) === "in")],
       ["Outliers", "Other wards", rows.filter(p => wardGroup(p) === "out")],
       ["Ward not set", "", rows.filter(p => wardGroup(p) === "none")]];
     const emptyMsg = past ? (pastList.length ? "No past patients match your search." : "No past patients yet. Patients move here when you mark them discharged or transferred.")
@@ -632,9 +635,47 @@ function renderList(past = false) {
   $("#q").oninput = e => { filter.q = e.target.value; draw(); };
   document.querySelectorAll('input[name="df"]').forEach(r => r.onchange = e => { filter.d = e.target.value; draw(); });
   if (!past) $("#wr").onclick = () => wardRound(active);
-  if (!past) { $("#topast").onclick = () => go("past"); $("#exp").onclick = exportBackup; $("#imp").onchange = importBackup;
-    if ($("#bknow")) $("#bknow").onclick = exportBackup; if ($("#imp2")) $("#imp2").onchange = importBackup; }
+  if (!past) { $("#toopts").onclick = () => go("options"); if ($("#imp2")) $("#imp2").onchange = importBackup; }
 }
+/* ---------- settings ---------- */
+function renderOptions() {
+  $("#topbar").innerHTML = `<button class="ghost" id="back" aria-label="Back to patient list">${icon("back")}</button><p class="brand">Settings</p>`;
+  $("#back").onclick = () => go("");
+  const b = backupState(), pastN = patients.filter(isPast).length;
+  $("#app").innerHTML = `
+    <ul class="olist">
+      <li><button class="orow" id="o-bk">${icon("save")}<span class="grow">Back up now<small>${b.last ? "Last backup " + esc(fmtDateTime(b.last)) : "Not backed up yet"}${b.changed && b.real ? " · " + b.changed + " changed since" : ""}</small></span>${icon("chev")}</button></li>
+      <li><label class="orow btn filebtn" style="border:0">${icon("doc")}<span class="grow">Restore from backup<small>Pick a backup file from Files. Newer records are kept.</small></span>${icon("chev")}<input type="file" id="o-imp" accept="application/json,.json"></label></li>
+      <li><button class="orow" id="o-past">${icon("sheet")}<span class="grow">Past patients<small>${pastN} discharged or transferred</small></span>${icon("chev")}</button></li>
+    </ul>
+    <h2 class="ghead" style="font-size:16px">Configuration</h2>
+    <ul class="olist" style="margin-top:8px">
+      <li><button class="orow" id="o-meds" aria-expanded="false">${icon("plus")}<span class="grow">Medicines<small>${medButtons().length} tap-to-add buttons</small></span>${icon("chev")}</button>
+        <div class="opanel" id="o-medpanel" hidden>
+          <ul class="medlist" id="o-medlist"></ul>
+          <div class="row"><input id="o-mednew" class="grow" placeholder="e.g. Ceftriaxone 1g IV daily" aria-label="New medicine"><button id="o-medadd">${icon("plus")}Add</button></div>
+        </div></li>
+      <li><div class="orow">${icon("sheet")}<span class="grow">Main ward<small>Patients in this ward are inpatients; any other ward is an outlier</small></span>
+        <input id="o-ward" value="${esc(mainWard())}" style="width:90px" inputmode="numeric" aria-label="Main ward"></div></li>
+    </ul>
+    <h2 class="ghead" style="font-size:16px">Privacy</h2>
+    <p class="hint" style="margin-top:6px;max-width:62ch">Records are stored only on this phone, and stickers, CT reports and labs are read on the phone. Nothing is sent to a server. Deleting the app icon or clearing Safari website data erases the records, so keep the weekly backup.</p>`;
+  $("#o-bk").onclick = exportBackup;
+  $("#o-imp").onchange = importBackup;
+  $("#o-past").onclick = () => go("past");
+  $("#o-ward").onchange = e => { const v = e.target.value.trim() || "267"; try { localStorage.setItem("wpl-main-ward", v); } catch {} toast("Main ward set to " + v); };
+  const drawMedList = () => {
+    const list = medButtons();
+    $("#o-medlist").innerHTML = list.map((m, i) => `<li><span>${esc(m)}</span><button class="ghost danger" data-i="${i}" aria-label="Delete ${esc(m)}">Delete</button></li>`).join("") || `<li><span class="hint">No medicines yet.</span></li>`;
+    $("#o-medlist").querySelectorAll("button").forEach(x => x.onclick = () => { saveMedButtons(list.filter((_, j) => j !== +x.dataset.i)); drawMedList(); });
+    $("#o-meds small").textContent = `${medButtons().length} tap-to-add buttons`;
+  };
+  $("#o-meds").onclick = () => { const pnl = $("#o-medpanel"); pnl.hidden = !pnl.hidden; $("#o-meds").setAttribute("aria-expanded", String(!pnl.hidden)); if (!pnl.hidden) drawMedList(); };
+  const add = () => { const v = $("#o-mednew").value.trim(); if (!v) return; const l = medButtons(); if (!l.includes(v)) saveMedButtons([...l, v]); $("#o-mednew").value = ""; drawMedList(); $("#o-mednew").focus(); };
+  $("#o-medadd").onclick = add;
+  $("#o-mednew").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); add(); } };
+}
+
 /* ---------- backups: a file the user keeps in a folder of their choice ---------- */
 const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
@@ -648,7 +689,7 @@ async function exportBackup() {
   const stamp = new Date();
   const data = JSON.stringify({ app: "ward-patient-log", version: 1, exported: stamp.toISOString(), medButtons: medButtons(), patients: patients.filter(p => !p.example) }, null, 1);
   const filename = `patient-log-backup-${stamp.toISOString().slice(0,16).replace("T", "_").replace(":", "")}.json`;
-  const done = () => { lsSet("wpl-last-backup", stamp.toISOString()); lsSet("wpl-deleted-since", "0"); toast("Backup saved"); if (!location.hash) renderList(); };
+  const done = () => { lsSet("wpl-last-backup", stamp.toISOString()); lsSet("wpl-deleted-since", "0"); toast("Backup saved"); if (!location.hash || location.hash === "#options") route(); };
   // 1. iPhone / Android share sheet: "Save to Files" lets you pick the folder
   try {
     const file = new File([data], filename, { type: "application/json" });
@@ -681,7 +722,7 @@ async function importBackup(e) {
     }
     patients = await store.all();
     toast(`Restored from ${fmtDate(j.exported)}: ${added} added, ${updated} updated${kept ? ", " + kept + " already up to date" : ""}`);
-    renderList();
+    route();
   } catch (err) { toast("Could not restore: " + err.message); }
 }
 
@@ -720,9 +761,8 @@ function renderEdit(id) {
   <section class="sec" aria-labelledby="h-tx">
     <h2 id="h-tx">Treatment</h2>
     <textarea id="treatment" data-k="treatment" placeholder="Management so far and plan" aria-labelledby="h-tx">${esc(p.treatment)}</textarea>
-    <div class="sec-h"><h3 class="hint" style="font-weight:700">Medicines: tap to add</h3><button class="ghost" id="medmanage">Edit buttons</button></div>
+    <h3 class="hint" style="font-weight:700">Medicines: tap to add</h3>
     <div class="meds" id="meds"></div>
-    <div class="row" id="medadd" hidden><input id="mednew" class="grow" placeholder="New button, e.g. Ceftriaxone 1g IV daily" aria-label="New medicine button"><button id="medaddbtn">${icon("plus")}Add</button></div>
     <ul class="medlist" id="medlist"></ul>
     <label class="f"><span>Current plan</span><textarea id="plan" data-k="plan" rows="3" placeholder="e.g. Check corneal infiltrate daily, follow up on lab results">${esc(p.plan)}</textarea></label>
   </section>
@@ -869,7 +909,7 @@ function renderEdit(id) {
   const drawMeds = () => {
     const btns = medButtons();
     $("#meds").innerHTML = btns.length ? btns.map((m, i) => `<button class="med" data-mi="${i}" aria-pressed="${!managing && p.meds.includes(m)}">${esc(m)}${managing ? '<span class="x" aria-label="Delete button">×</span>' : ""}</button>`).join("")
-      : `<span class="hint">No medicine buttons yet. Tap <b>Edit buttons</b> to make some.</span>`;
+      : `<span class="hint">No medicine buttons yet. Add them in Settings › Medicines.</span>`;
     $("#meds").querySelectorAll(".med").forEach(b => b.onclick = () => {
       const m = btns[+b.dataset.mi];
       if (managing) { saveMedButtons(btns.filter(x => x !== m)); drawMeds(); return; }
@@ -877,14 +917,8 @@ function renderEdit(id) {
     });
     $("#medlist").innerHTML = p.meds.map((m, i) => `<li><span>${esc(m)}</span><button class="ghost danger" data-ri="${i}" aria-label="Remove ${esc(m)}">Remove</button></li>`).join("");
     $("#medlist").querySelectorAll("button").forEach(b => b.onclick = () => { p.meds.splice(+b.dataset.ri, 1); autosave(); drawMeds(); });
-    $("#medmanage").textContent = managing ? "Done" : "Edit buttons";
-    $("#medadd").hidden = !managing;
   };
   drawMeds();
-  $("#medmanage").onclick = () => { managing = !managing; drawMeds(); if (managing) $("#mednew").focus(); };
-  const addMed = () => { const v = $("#mednew").value.trim(); if (!v) return; const b = medButtons(); if (!b.includes(v)) saveMedButtons([...b, v]); $("#mednew").value = ""; drawMeds(); $("#mednew").focus(); };
-  $("#medaddbtn").onclick = addMed;
-  $("#mednew").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); addMed(); } };
 
   // lab results
   p.labs = p.labs || [];
@@ -1031,7 +1065,7 @@ function wardRound(active) {
     if (!chosen.length) { toast("Tick at least one patient"); return; }
     const sec = (title, list) => list.length ? [title, ...list.map((p, i) => `${i + 1}. ${p.ward ? "[" + p.ward + "] " : ""}${handover(p, { ward: false })}`)].join("\n\n") : "";
     const txt = [`Ward round list, ${fmtDate(new Date().toISOString())}`,
-      sec(`INPATIENTS (ward ${MAIN_WARD})`, chosen.filter(p => wardGroup(p) === "in")),
+      sec(`INPATIENTS (ward ${mainWard()})`, chosen.filter(p => wardGroup(p) === "in")),
       sec("OUTLIERS", chosen.filter(p => wardGroup(p) !== "in"))].filter(Boolean).join("\n\n");
     $("#wrtext").value = txt; $("#wrtext").hidden = false; $("#wrcopyrow").hidden = false;
   };
@@ -1150,8 +1184,7 @@ function backupPrompt() {
   lsSet("wpl-prompted", today);
   const m = document.createElement("div"); m.className = "bkmodal"; m.setAttribute("role", "dialog"); m.setAttribute("aria-label", "Weekly backup");
   m.innerHTML = `<div class="bkcard"><h2 style="color:var(--fg);font-size:18px;letter-spacing:0;text-transform:none">Weekly backup</h2>
-    <p style="margin:0">${b.changed} patient${b.changed === 1 ? " has" : "s have"} changed since ${b.last ? "the last backup on " + esc(fmtDateTime(b.last)) : "you started"}. Tap <b>Back up now</b>, then <b>Save to Files</b>.</p>
-    <div class="row"><button class="primary" id="bkm-yes">${icon("save")}Back up now</button><button class="ghost" id="bkm-no">Later</button></div></div>`;
+    <div class="row"><button class="primary" id="bkm-yes">${icon("save")}Backup now</button><button class="ghost" id="bkm-no">Later</button></div></div>`;
   document.body.appendChild(m);
   m.querySelector("#bkm-no").onclick = () => m.remove();
   m.querySelector("#bkm-yes").onclick = async () => { m.remove(); await exportBackup(); };
