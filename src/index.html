@@ -97,8 +97,16 @@ label.f span{letter-spacing:.03em}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .thumb button{position:absolute;top:6px;right:6px;min-height:32px;padding:4px 10px;font-size:13px;background:var(--surface)}
 .thumb input{position:absolute;left:0;right:0;bottom:0;border-radius:0;border:0;border-top:1px solid var(--line);font-size:13px;padding:6px 8px;background:var(--surface)}
-.seg{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-@media (max-width:520px){.seg{grid-template-columns:1fr 1fr}}
+.seg2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dbtn{border-radius:10px;min-height:48px;font-size:15px}
+.dbtn[aria-pressed="false"]{background:var(--surface);color:var(--fg);border-color:var(--line)}
+.dbtn[aria-pressed="true"].d-awaiting{border-color:var(--amber);background:var(--amber-soft);color:var(--amber)}
+.dbtn[aria-pressed="true"].d-discharged{border-color:var(--green);background:var(--green-soft);color:var(--green)}
+.dbtn[aria-pressed="true"].d-transferred{border-color:var(--blue);background:var(--blue-soft);color:var(--blue)}
+.dbtn[aria-pressed="true"].d-inpatient{border-color:var(--grey);background:var(--grey-soft)}
+.grid32{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:12px}
+@media (max-width:440px){.grid32{grid-template-columns:minmax(0,1fr)}}
+input[type="date"]{min-width:0;max-width:100%;-webkit-appearance:none;appearance:none;min-height:44px}
 .seg label{position:relative;border:1px solid var(--line);border-radius:8px;padding:12px 10px;text-align:center;font-weight:700;font-size:15px;cursor:pointer;background:var(--surface)}
 .seg input{position:absolute;opacity:0;inset:0;cursor:pointer}
 .seg label:has(input:checked).d-awaiting{border-color:var(--amber);background:var(--amber-soft);color:var(--amber)}
@@ -206,7 +214,8 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const icon = n => `<svg class="i"><use href="#i-${n}"/></svg>`;
 const abs = p => new URL(p, location.href).href;
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-const DISPO = {
+const DISPO_CHOICES = ["awaiting", "discharged"];
+const DISPO = { // older records may still hold transferred / other
   awaiting: "Awaiting surgery", discharged: "Discharged", transferred: "Transferred", inpatient: "Other"
 };
 function toast(msg) {
@@ -601,9 +610,7 @@ function renderList(past = false) {
   const counts = { all: active.length, in: active.filter(p => wardGroup(p) === "in").length, out: active.filter(p => wardGroup(p) === "out").length };
   $("#app").innerHTML = `
     ${past ? `<p class="hint" style="margin-top:16px">Discharged and transferred patients. Open a file to read it, or bring the patient back to the active list if they return.</p>`
-      : `${(() => { const b = backupState();
-          if (!b.real) return `<div class="notice" style="align-items:center;flex-wrap:wrap">${icon("doc")}<div class="grow"><b>Starting fresh?</b> If you have a backup file, restore it to bring your patients back.</div><label class="btn primary filebtn">Restore from backup<input type="file" id="imp2" accept="application/json,.json"></label></div>`;
-          return ""; })()}${store.persistent ? "" : `<div class="notice" style="background:var(--red-soft)">${icon("lock")}<div><b>This browser is blocking storage, so records will be lost when you close the app.</b></div></div>`}`}
+      : `${store.persistent ? "" : `<div class="notice" style="background:var(--red-soft)">${icon("lock")}<div><b>This browser is blocking storage, so records will be lost when you close the app.</b></div></div>`}`}
     <input class="search" id="q" type="search" placeholder="Search name, PMI, diagnosis" value="${esc(filter.q)}" aria-label="Search patients">
     ${past ? "" : `<div class="chips" role="radiogroup" aria-label="Show patients">
       ${[["all", "All"], ["in", "Inpatients"], ["out", "Outliers"]].map(([k, v]) =>
@@ -620,7 +627,7 @@ function renderList(past = false) {
       .sort((a, b) => past ? (b.dispoDate || b.updated || "").localeCompare(a.dispoDate || a.updated || "") : (b.updated || "").localeCompare(a.updated || ""));
     const card = p => `<li><button class="pcard" data-id="${p.id}">
         <span class="nm">${esc(p.name || "Unnamed patient")}</span>
-        <span class="pill d-${p.dispo || "none"}">${esc(DISPO[p.dispo] || "No disposition")}${past && p.dispoDate ? " " + esc(fmtDate(p.dispoDate)) : ""}</span>
+        ${p.dispo ? `<span class="pill d-${p.dispo}">${esc(DISPO[p.dispo])}${past && p.dispoDate ? " " + esc(fmtDate(p.dispoDate)) : ""}</span>` : "<span></span>"}
         <span class="meta"><span class="mono">${p.mrn ? "PMI " + esc(p.mrn) : "No PMI"}</span>${ageOf(p) || p.sex ? `<span>${esc([ageOf(p), p.sex].filter(Boolean).join(" · "))}</span>` : ""}${p.ward ? `<span>${esc(p.ward)}</span>` : ""}${p.example ? `<span class="tag">Example</span>` : ""}</span>
         ${p.diagnosis ? `<span class="dx">${esc(p.diagnosis)}</span>` : ""}
       </button></li>`;
@@ -638,7 +645,7 @@ function renderList(past = false) {
   $("#q").oninput = e => { filter.q = e.target.value; draw(); };
   document.querySelectorAll('input[name="df"]').forEach(r => r.onchange = e => { filter.d = e.target.value; draw(); });
   if (!past) $("#wr").onclick = () => wardRound(active);
-  if (!past) { $("#toopts").onclick = () => go("options"); if ($("#imp2")) $("#imp2").onchange = importBackup; }
+  if (!past) { $("#toopts").onclick = () => go("options"); }
 }
 /* ---------- settings ---------- */
 function renderOptions() {
@@ -658,12 +665,23 @@ function renderOptions() {
           <ul class="medlist" id="o-medlist"></ul>
           <div class="row"><input id="o-mednew" class="grow" placeholder="e.g. Ceftriaxone 1g IV daily" aria-label="New medicine"><button id="o-medadd">${icon("plus")}Add</button></div>
         </div></li>
+      <li><button class="orow" id="o-pw">${icon("lock")}<span class="grow">Backup password<small>${backupPassword() ? "On: backups are encrypted" : "Off: backups are not encrypted"}</small></span>${icon("chev")}</button></li>
       <li><div class="orow">${icon("sheet")}<span class="grow">Main ward<small>Patients in this ward are inpatients; any other ward is an outlier</small></span>
         <input id="o-ward" value="${esc(mainWard())}" style="width:90px" inputmode="numeric" aria-label="Main ward"></div></li>
     </ul>
     <h2 class="ghead" style="font-size:16px">Privacy</h2>
     <p class="hint" style="margin-top:6px;max-width:62ch">Records are stored only on this phone, and stickers, CT reports and labs are read on the phone. Nothing is sent to a server. Deleting the app icon or clearing Safari website data erases the records, so keep the weekly backup.</p>`;
   $("#o-bk").onclick = exportBackup;
+  $("#o-pw").onclick = async () => {
+    const a = await askPassword(backupPassword() ? "New backup password" : "Set a backup password", "Backups will be encrypted with it. Write it down somewhere safe: without it a backup can't be restored. Leave empty to turn encryption off.");
+    if (a === null) return;
+    if (!a) { lsSet("wpl-backup-pw", ""); toast("Backup encryption off"); return route(); }
+    if (a.length < 6) { toast("Use at least 6 characters"); return; }
+    const b = await askPassword("Type it again");
+    if (b === null) return;
+    if (a !== b) { toast("The passwords didn't match"); return; }
+    lsSet("wpl-backup-pw", a); toast("Backups will now be encrypted"); route();
+  };
   $("#o-imp").onchange = importBackup;
   $("#o-past").onclick = () => go("past");
   $("#o-ward").onchange = e => { const v = e.target.value.trim() || "267"; try { localStorage.setItem("wpl-main-ward", v); } catch {} toast("Main ward set to " + v); };
@@ -688,9 +706,43 @@ function backupState() {
   const changed = real.filter(p => !last || (p.updated || "") > last).length + (+lsGet("wpl-deleted-since") || 0);
   return { last, changed, real: real.length };
 }
+/* Backup encryption: AES-256-GCM with a key derived from the backup password (PBKDF2-SHA256, 310,000 rounds).
+   Done with the phone's built-in Web Crypto; the password never leaves the phone. */
+const b64 = buf => { let s = ""; const a = new Uint8Array(buf); for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode(...a.subarray(i, i + 0x8000)); return btoa(s); };
+const unb64 = str => Uint8Array.from(atob(str), c => c.charCodeAt(0));
+async function deriveKey(password, salt, iter) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: iter, hash: "SHA-256" }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+async function encryptBackup(plain, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12)), iter = 310000;
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await deriveKey(password, salt, iter), new TextEncoder().encode(plain));
+  return JSON.stringify({ app: "ward-patient-log", encrypted: "AES-256-GCM/PBKDF2-SHA256", iter, salt: b64(salt), iv: b64(iv), data: b64(ct) });
+}
+async function decryptBackup(j, password) {
+  try {
+    const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(j.iv) }, await deriveKey(password, unb64(j.salt), j.iter), unb64(j.data));
+    return JSON.parse(new TextDecoder().decode(pt));
+  } catch { throw new Error("wrong password"); }
+}
+const backupPassword = () => lsGet("wpl-backup-pw") || "";
+function askPassword(title, text) {
+  return new Promise(resolve => {
+    const m = document.createElement("div"); m.className = "bkmodal"; m.setAttribute("role", "dialog"); m.setAttribute("aria-label", title);
+    m.innerHTML = `<form class="bkcard"><h2 style="color:var(--fg);font-size:18px;letter-spacing:0;text-transform:none">${esc(title)}</h2>
+      ${text ? `<p class="hint">${esc(text)}</p>` : ""}<input type="password" id="pw-in" autocomplete="current-password" aria-label="Password">
+      <div class="row"><button class="primary" type="submit">OK</button><button class="ghost" type="button" id="pw-x">Cancel</button></div></form>`;
+    document.body.appendChild(m);
+    const close = v => { m.remove(); resolve(v); };
+    m.querySelector("form").onsubmit = e => { e.preventDefault(); close(m.querySelector("#pw-in").value); };
+    m.querySelector("#pw-x").onclick = () => close(null);
+    m.querySelector("#pw-in").focus();
+  });
+}
 async function exportBackup() {
   const stamp = new Date();
-  const data = JSON.stringify({ app: "ward-patient-log", version: 1, exported: stamp.toISOString(), medButtons: medButtons(), patients: patients.filter(p => !p.example) }, null, 1);
+  let data = JSON.stringify({ app: "ward-patient-log", version: 1, exported: stamp.toISOString(), medButtons: medButtons(), patients: patients.filter(p => !p.example) });
+  if (backupPassword()) data = await encryptBackup(data, backupPassword());
   const filename = `patient-log-backup-${stamp.toISOString().slice(0,16).replace("T", "_").replace(":", "")}.json`;
   const done = () => { lsSet("wpl-last-backup", stamp.toISOString()); lsSet("wpl-deleted-since", "0"); toast("Backup saved"); if (!location.hash || location.hash === "#options") route(); };
   // 1. iPhone / Android share sheet: "Save to Files" lets you pick the folder
@@ -713,7 +765,18 @@ async function exportBackup() {
 async function importBackup(e) {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
   try {
-    const j = JSON.parse(await f.text()); if (!Array.isArray(j.patients)) throw new Error("this isn't a Patient Log backup file");
+    let j = JSON.parse(await f.text());
+    if (j && j.encrypted) {
+      let pw = backupPassword(), out = null;
+      if (pw) { try { out = await decryptBackup(j, pw); } catch {} }
+      while (!out) {
+        pw = await askPassword("Backup password", "This backup is encrypted. Enter the password it was saved with.");
+        if (pw === null) return;
+        try { out = await decryptBackup(j, pw); } catch { toast("Wrong password, try again"); }
+      }
+      j = out;
+    }
+    if (!Array.isArray(j.patients)) throw new Error("this isn't a Patient Log backup file");
     if (Array.isArray(j.medButtons)) saveMedButtons(j.medButtons);
     let added = 0, updated = 0, kept = 0;
     for (const b of j.patients) {
@@ -788,10 +851,11 @@ function renderEdit(id) {
 
   <section class="sec" aria-labelledby="h-dp">
     <h2 id="h-dp">Disposition</h2>
-    <div class="seg" role="radiogroup" aria-labelledby="h-dp">
-      ${Object.entries(DISPO).map(([k, v]) => `<label class="d-${k}"><input type="radio" name="dispo" value="${k}" ${p.dispo===k?"checked":""}>${esc(v)}</label>`).join("")}
+    <p class="hint">Tap again to clear.</p>
+    <div class="seg2">
+      ${[...new Set([...DISPO_CHOICES, ...(p.dispo && !DISPO_CHOICES.includes(p.dispo) ? [p.dispo] : [])])].map(k => `<button class="dbtn d-${k}" data-d="${k}" aria-pressed="${p.dispo === k}">${esc(DISPO[k])}</button>`).join("")}
     </div>
-    <div class="grid2" style="grid-template-columns:minmax(0,3fr) minmax(0,2fr)">${field("dispoNote", "Details", p.dispoNote, 'placeholder="e.g. Transferred to Royal Infirmary ITU"')}${field("dispoDate", "Date", p.dispoDate, 'type="date"')}</div>
+    <div class="grid32" id="dispodetail" ${p.dispo ? "" : "hidden"}>${field("dispoNote", "Details", p.dispoNote, 'placeholder="e.g. Theatre list Thursday"')}${field("dispoDate", "Date", p.dispoDate, 'type="date"')}</div>
   </section>
 
   <section class="sec" aria-labelledby="h-ph">
@@ -810,9 +874,13 @@ function renderEdit(id) {
   const markSaved = () => { $("#saved").textContent = "Saved " + fmtDateTime(p.updated); };
   const autosave = () => { clearTimeout(t); $("#saved").textContent = "Saving…"; t = setTimeout(async () => { await save(p); markSaved(); $(".brand").textContent = p.name || "New patient"; }, 400); };
   $("#app").querySelectorAll("[data-k]").forEach(el => el.addEventListener("input", () => { p[el.dataset.k] = el.value; autosave(); }));
-  document.querySelectorAll('input[name="dispo"]').forEach(r => r.onchange = () => {
-    p.dispo = r.value; if (isPast(p)) toast("Will move to Past when you leave this record");
-    if (!p.dispoDate) { p.dispoDate = new Date().toISOString().slice(0,10); $("#dispoDate").value = p.dispoDate; } autosave(); });
+  document.querySelectorAll(".dbtn").forEach(btn => btn.onclick = () => {
+    const k = btn.dataset.d;
+    if (p.dispo === k) { p.dispo = ""; p.dispoDate = ""; $("#dispoDate").value = ""; }
+    else { p.dispo = k; if (isPast(p)) toast("Will move to Past when you leave this record");
+      if (!p.dispoDate) { p.dispoDate = todayISO(); $("#dispoDate").value = p.dispoDate; } }
+    document.querySelectorAll(".dbtn").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.d === p.dispo)));
+    $("#dispodetail").hidden = !p.dispo; autosave(); });
   $("#done").onclick = async () => { clearTimeout(t); await save(p); go("summary-" + p.id); };
   $("#del").onclick = () => {
     $("#delzone").innerHTML = `<div class="confirm">Delete ${esc(p.name || "this patient")} and all their data from this device?
@@ -862,7 +930,7 @@ function renderEdit(id) {
   // CT
   const drawCT = () => {
     $("#ctlist").innerHTML = p.ct.length ? p.ct.map((c, i) => `<div class="ct" data-i="${i}">
-      <div class="grid2" style="grid-template-columns:minmax(0,3fr) minmax(0,2fr)">
+      <div class="grid32">
         <label class="f"><span>Study</span><input data-ck="title" value="${esc(c.title)}" placeholder="e.g. CT abdomen/pelvis"></label>
         <label class="f"><span>Date</span><input data-ck="date" type="date" value="${esc(c.date)}"></label></div>
       ${c.found ? `<span class="ct-found">Copied from the “${esc(c.found)}” section of ${esc(c.file || "the report")}</span>` : (c.raw && !c.conclusion ? `<span class="status err">No conclusion heading found in ${esc(c.file || "the report")}. Copy the relevant part from the report text below.</span>` : "")}
@@ -948,7 +1016,7 @@ function renderEdit(id) {
   p.labs = p.labs || [];
   const drawLabs = () => {
     $("#lablist").innerHTML = p.labs.map((l, i) => `<div class="ct" data-i="${i}">
-      <div class="grid2" style="grid-template-columns:minmax(0,3fr) minmax(0,2fr)">
+      <div class="grid32">
         <label class="f"><span>Results</span><input data-lk="title" value="${esc(l.title)}" placeholder="e.g. FBC, U&amp;E, CRP"></label>
         <label class="f"><span>Date</span><input data-lk="date" type="date" value="${esc(l.date)}"></label></div>
       <div class="thumbs">${l.pages.map((src, j) => `<button class="thumb tap" data-pg="${j}" aria-label="Open page ${j+1}" style="padding:0"><img src="${src}" alt="Lab results page ${j+1}"></button>`).join("")}</div>
@@ -1141,7 +1209,7 @@ function summaryText(p) {
   L.push("", "CT");
   if (p.ct.length) p.ct.forEach(c => L.push(`${fmtDate(c.date)} ${c.title || "CT"}: ${c.conclusion || "-"}`)); else L.push("-");
   if ((p.labs || []).length) { L.push("", "LABS"); p.labs.forEach(l => L.push(`${fmtDate(l.date)} ${l.title || "Labs"}${l.notes ? ": " + l.notes : ""}`)); }
-  L.push("", "DISPOSITION", (DISPO[p.dispo] || "-") + (p.dispoNote ? ": " + p.dispoNote : "") + (p.dispoDate ? " (" + fmtDate(p.dispoDate) + ")" : ""));
+  if (p.dispo) L.push("", "DISPOSITION", DISPO[p.dispo] + (p.dispoNote ? ": " + p.dispoNote : "") + (p.dispoDate ? " (" + fmtDate(p.dispoDate) + ")" : ""));
   return L.join("\n");
 }
 function renderSummary(id) {
@@ -1156,7 +1224,7 @@ function renderSummary(id) {
   <article class="sheet">
     <div class="sheet-h">
       <h1>${esc(p.name || "Unnamed patient")}</h1>
-      <span class="pill d-${p.dispo || "none"}">${esc(DISPO[p.dispo] || "No disposition")}</span>
+      ${p.dispo ? `<span class="pill d-${p.dispo}">${esc(DISPO[p.dispo])}</span>` : "<span></span>"}
       <dl class="ids">
         <div><dt>PMI</dt><dd class="mono">${esc(p.mrn || "–")}</dd></div>
         <div><dt>Age</dt><dd class="mono">${esc(ageOf(p) || "–")}${p.sex ? ` · ${esc(p.sex)}` : ""}</dd></div>
@@ -1172,7 +1240,7 @@ function renderSummary(id) {
       <section class="blk"><h2>CT</h2><div class="v${p.ct.length ? "" : " none"}">${p.ct.length ? p.ct.map(c => `<blockquote class="ctq"><div class="src">${esc(fmtDate(c.date))} · ${esc(c.title || "CT")}</div>${esc(c.conclusion || "No conclusion recorded")}</blockquote>`).join("") : "No CT reports"}</div></section>
       <section class="blk"><h2>Labs</h2>${(p.labs||[]).length ? `<div class="v">${p.labs.map((l, li) => `<div class="ctq"><div class="src">${esc(fmtDate(l.date))}${l.title ? " · " + esc(l.title) : ""}</div>${l.notes ? esc(l.notes) : ""}<div class="thumbs" style="margin-top:6px;white-space:normal">${l.pages.map((src, j) => `<button class="thumb tap" data-lab="${li}" data-pg="${j}" style="padding:0" aria-label="Open lab page ${j+1}"><img src="${src}" alt="Lab results page ${j+1}"></button>`).join("")}</div></div>`).join("")}</div>` : `<div class="v none">No lab results</div>`}</section>
       <section class="blk"><h2>Plan</h2>${v(p.plan)}</section>
-      <section class="blk"><h2>Disposition</h2><div class="v">${p.dispo ? `<b>${esc(DISPO[p.dispo])}</b>${p.dispoDate ? " · " + esc(fmtDate(p.dispoDate)) : ""}${p.dispoNote ? "\n" + esc(p.dispoNote) : ""}` : `<span class="none" style="color:var(--muted);font-style:italic">Not recorded</span>`}</div></section>
+      ${p.dispo ? `<section class="blk"><h2>Disposition</h2><div class="v"><b>${esc(DISPO[p.dispo])}</b>${p.dispoDate ? " · " + esc(fmtDate(p.dispoDate)) : ""}${p.dispoNote ? "\n" + esc(p.dispoNote) : ""}</div></section>` : ""}
       ${p.photos.length ? `<section class="blk"><h2>Photos</h2><div class="thumbs">${p.photos.map((ph, i) => `<figure><div class="thumb"><img src="${ph.src}" alt="${esc(ph.caption || "Clinical photo " + (i+1))}"></div>${ph.caption ? `<figcaption>${esc(ph.caption)}</figcaption>` : ""}</figure>`).join("")}</div></section>` : ""}
     </div>
     ${(p.history || []).length ? `<section class="blk" style="border-top:1px solid var(--line)"><h2>Previous admissions</h2><div class="v">${p.history.map(h => `<div class="ctq"><div class="src">${esc(fmtDate(h.admitted))} to ${esc(fmtDate(h.date) || "?")} · ${esc(DISPO[h.dispo] || "")}${h.ward ? " · " + esc(h.ward) : ""}</div>${esc(h.diagnosis || "")}${h.note ? "\n" + esc(h.note) : ""}</div>`).join("")}</div></section>` : ""}
