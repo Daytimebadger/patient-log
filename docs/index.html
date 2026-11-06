@@ -145,7 +145,15 @@ details summary{cursor:pointer;font-size:14px;color:var(--muted);font-weight:700
 figure{margin:0}
 figcaption{font-size:13px;color:var(--muted);margin-top:4px}
 .foot{font-size:12px;color:var(--muted);padding:10px 18px;background:var(--sunk)}
-.meds{display:flex;flex-wrap:wrap;gap:8px}
+.meds{display:flex;flex-direction:column;gap:6px}
+.medrow{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:4px 4px 4px 4px;background:var(--surface)}
+.medrow.on{border-color:var(--accent);background:var(--accent-soft)}
+.medname{flex:1;min-width:0;border:0;background:transparent;justify-content:flex-start;text-align:left;font-size:15px;padding:8px 10px;min-height:44px;border-radius:8px;display:flex;flex-direction:column;align-items:flex-start;gap:0}
+.medname small{font-weight:400;font-size:12px;color:var(--accent)}
+.medrow:not(.on) .medname{font-weight:400}
+.freqs{display:flex;gap:4px;flex:none}
+.freq{min-height:34px;min-width:40px;padding:4px 8px;font-size:13px;border-radius:999px}
+.freq[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .med{font:inherit;font-size:14px;font-weight:700;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:8px;padding:8px 12px;min-height:40px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-align:left}
 .med[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .med .x{font-weight:700;color:var(--red);margin-left:2px}
@@ -550,7 +558,7 @@ function example() {
     diagnosis: "Acute appendicitis with localised perforation.",
     treatment: "NBM, IV fluids. Consented for laparoscopic appendicectomy.", comorbid: "",
     plan: "Laparoscopic appendicectomy tonight. Repeat FBC and CRP in the morning.",
-    meds: ["Paracetamol 1g PO 6-hourly", "Ceftriaxone 1g IV daily", "Metronidazole 500mg IV 8-hourly"],
+    meds: [{ name: "Paracetamol 1g PO", freq: "qid", start: new Date(Date.now() - 2 * 864e5).toISOString().slice(0,10) }, { name: "Ceftriaxone 1g IV", freq: "dly", start: new Date(Date.now() - 2 * 864e5).toISOString().slice(0,10) }, { name: "Metronidazole 500mg IV", freq: "tds", start: new Date(Date.now() - 864e5).toISOString().slice(0,10) }],
     ct: [{ id: uid(), date: new Date(Date.now() - 864e5).toISOString().slice(0,10), title: "CT abdomen/pelvis with contrast", file: "sample-report.pdf",
       conclusion: "Acute appendicitis with a small focus of extraluminal gas in keeping with localised perforation. No drainable collection. No free fluid elsewhere.", raw: "" }],
     dispo: "awaiting", dispoNote: "On CEPOD list, expected this evening." });
@@ -629,7 +637,7 @@ function renderList(past = false) {
     $("#plist").innerHTML = rows.length ? groups.filter(g => g[2].length).map(([t, sub, list]) =>
         `${t ? `<h2 class="ghead">${t} <small>${sub ? esc(sub) + " · " : ""}${list.length}</small></h2>` : ""}<ul class="plist" style="margin-top:${t ? 8 : 16}px">${list.map(card).join("")}</ul>`).join("")
       : `<div class="empty">${emptyMsg}</div>`;
-    $("#plist").querySelectorAll(".pcard").forEach(b => b.onclick = () => go("summary-" + b.dataset.id));
+    $("#plist").querySelectorAll(".pcard").forEach(b => b.onclick = () => go("edit-" + b.dataset.id));
   };
   draw();
   $("#q").oninput = e => { filter.q = e.target.value; draw(); };
@@ -761,9 +769,8 @@ function renderEdit(id) {
   <section class="sec" aria-labelledby="h-tx">
     <h2 id="h-tx">Treatment</h2>
     <textarea id="treatment" data-k="treatment" placeholder="Management so far and plan" aria-labelledby="h-tx">${esc(p.treatment)}</textarea>
-    <h3 class="hint" style="font-weight:700">Medicines: tap to add</h3>
+    <h3 class="hint" style="font-weight:700">Medicines: tap a name to start or stop it, then pick how often</h3>
     <div class="meds" id="meds"></div>
-    <ul class="medlist" id="medlist"></ul>
     <label class="f"><span>Current plan</span><textarea id="plan" data-k="plan" rows="3" placeholder="e.g. Check corneal infiltrate daily, follow up on lab results">${esc(p.plan)}</textarea></label>
   </section>
 
@@ -904,19 +911,29 @@ function renderEdit(id) {
   };
 
   // medicines
-  p.meds = p.meds || [];
-  let managing = false;
+  patientMeds(p);
   const drawMeds = () => {
-    const btns = medButtons();
-    $("#meds").innerHTML = btns.length ? btns.map((m, i) => `<button class="med" data-mi="${i}" aria-pressed="${!managing && p.meds.includes(m)}">${esc(m)}${managing ? '<span class="x" aria-label="Delete button">×</span>' : ""}</button>`).join("")
-      : `<span class="hint">No medicine buttons yet. Add them in Settings › Medicines.</span>`;
-    $("#meds").querySelectorAll(".med").forEach(b => b.onclick = () => {
-      const m = btns[+b.dataset.mi];
-      if (managing) { saveMedButtons(btns.filter(x => x !== m)); drawMeds(); return; }
-      p.meds = p.meds.includes(m) ? p.meds.filter(x => x !== m) : [...p.meds, m]; autosave(); drawMeds();
+    const names = [...medButtons()];
+    p.meds.forEach(m => { if (!names.includes(m.name)) names.push(m.name); }); // keep meds whose button was deleted
+    $("#meds").innerHTML = names.length ? names.map((n, i) => {
+      const m = p.meds.find(x => x.name === n);
+      return `<div class="medrow${m ? " on" : ""}" data-mi="${i}">
+        <button class="medname" aria-pressed="${!!m}">${esc(n)}${m ? `<small>Day ${medDay(m)}</small>` : ""}</button>
+        <div class="freqs" role="radiogroup" aria-label="Frequency for ${esc(n)}">${FREQS.map(f => `<button class="freq" data-f="${f}" aria-pressed="${!!m && m.freq === f}">${f}</button>`).join("")}</div>
+      </div>`; }).join("")
+      : `<span class="hint">No medicines yet. Add them in Settings › Medicines.</span>`;
+    $("#meds").querySelectorAll(".medrow").forEach(row => {
+      const n = names[+row.dataset.mi];
+      row.querySelector(".medname").onclick = () => {
+        p.meds = p.meds.some(x => x.name === n) ? p.meds.filter(x => x.name !== n) : [...p.meds, { name: n, freq: "", start: todayISO() }];
+        autosave(); drawMeds();
+      };
+      row.querySelectorAll(".freq").forEach(fb => fb.onclick = () => {
+        let m = p.meds.find(x => x.name === n);
+        if (!m) { m = { name: n, freq: "", start: todayISO() }; p.meds.push(m); }
+        m.freq = m.freq === fb.dataset.f ? "" : fb.dataset.f; autosave(); drawMeds();
+      });
     });
-    $("#medlist").innerHTML = p.meds.map((m, i) => `<li><span>${esc(m)}</span><button class="ghost danger" data-ri="${i}" aria-label="Remove ${esc(m)}">Remove</button></li>`).join("");
-    $("#medlist").querySelectorAll("button").forEach(b => b.onclick = () => { p.meds.splice(+b.dataset.ri, 1); autosave(); drawMeds(); });
   };
   drawMeds();
 
@@ -974,12 +991,26 @@ function renderEdit(id) {
 }
 
 /* ---------- medicine buttons (shared by all patients, kept on this device) ---------- */
-const MED_DEFAULTS = ["Paracetamol 1g PO 6-hourly", "Ibuprofen 400mg PO 8-hourly", "Tramadol 50mg PO 6-hourly PRN", "Morphine 5mg IV 4-hourly PRN",
+const MED_DEFAULTS = ["Paracetamol 1g PO", "Ibuprofen 400mg PO", "Tramadol 50mg PO", "Morphine 5mg IV",
+  "Ceftriaxone 1g IV", "Metronidazole 500mg IV", "Enoxaparin 40mg SC", "Omeprazole 40mg IV"];
+const OLD_DEFAULTS = ["Paracetamol 1g PO 6-hourly", "Ibuprofen 400mg PO 8-hourly", "Tramadol 50mg PO 6-hourly PRN", "Morphine 5mg IV 4-hourly PRN",
   "Ceftriaxone 1g IV daily", "Metronidazole 500mg IV 8-hourly", "Enoxaparin 40mg SC daily", "Omeprazole 40mg IV daily"];
+const FREQS = ["dly", "bd", "tds", "qid"];
 function medButtons() {
-  try { const v = JSON.parse(localStorage.getItem("wpl-meds")); if (Array.isArray(v)) return v; } catch {}
+  try { const v = JSON.parse(localStorage.getItem("wpl-meds")); if (Array.isArray(v)) return v.map(m => { const i = OLD_DEFAULTS.indexOf(m); return i >= 0 ? MED_DEFAULTS[i] : m; }); } catch {}
   return medButtons._mem || MED_DEFAULTS.slice();
 }
+// A patient's medicine: {name, freq: "dly"|"bd"|"tds"|"qid"|"", start: "YYYY-MM-DD"}
+const todayISO = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
+function patientMeds(p) {
+  p.meds = (p.meds || []).map(m => typeof m === "string" ? { name: m, freq: "", start: (p.updated || todayISO()).slice(0, 10) } : m);
+  return p.meds;
+}
+function medDay(m) {
+  const [y, mo, d] = (m.start || todayISO()).split("-").map(Number), start = new Date(y, mo - 1, d), now = new Date();
+  return Math.max(1, Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - start) / 864e5) + 1);
+}
+const medText = m => `${m.name}${m.freq ? " " + m.freq : ""}, Day ${medDay(m)}`;
 function saveMedButtons(list) { medButtons._mem = list; try { localStorage.setItem("wpl-meds", JSON.stringify(list)); } catch {} }
 
 async function pdfPages(file, max) {
@@ -1081,7 +1112,7 @@ function handover(p, opts = {}) {
   const parts = [];
   parts.push(sentence(`${who}${p.name ? " (" + p.name + (p.mrn ? ", PMI " + p.mrn : "") + ")" : ""}, ${p.comorbid ? "known with " + lowerFirst(p.comorbid) : "no comorbids"}${p.diagnosis ? ", with " + lowerFirst(p.diagnosis) : ""}`));
   if (p.ward && opts.ward !== false) parts.push(sentence(`${wardGroup(p) === "in" ? "Inpatient in ward" : "Outlier in ward"} ${p.ward}${p.admitted ? ", admitted " + fmtDate(p.admitted) : ""}`));
-  const meds = (p.meds || []).join(", ");
+  const meds = patientMeds(p).map(medText).join("; ");
   if (meds || p.treatment) parts.push(sentence(`Currently on ${[meds, lowerFirst(p.treatment)].filter(Boolean).join("; ")}`.replace(/^Currently on ;?\s*/, "Currently on ")));
   const ct = p.ct.filter(c => c.conclusion).at(-1);
   if (ct) parts.push(sentence(`${ct.title && ct.title !== "CT" ? ct.title : "CT"}${ct.date ? " (" + fmtDate(ct.date) + ")" : ""}: ${lowerFirst(ct.conclusion.replace(/\n+/g, " "))}`));
@@ -1098,7 +1129,7 @@ function summaryText(p) {
   L.push(`${p.name || "Unnamed"}  ${[ageOf(p), p.sex].filter(Boolean).join(" ")}`);
   L.push(`PMI ${p.mrn || "-"}${p.ward ? "  " + p.ward : ""}${p.admitted ? "  Admitted " + fmtDate(p.admitted) : ""}`);
   L.push("", "DIAGNOSIS", p.diagnosis || "-", "Comorbidities: " + (p.comorbid || "none"), "", "TREATMENT", p.treatment || "-");
-  if ((p.meds || []).length) L.push(...p.meds.map(m => "- " + m));
+  if (patientMeds(p).length) L.push(...p.meds.map(m => "- " + medText(m)));
   if (p.plan) L.push("", "PLAN", p.plan);
   L.push("", "CT");
   if (p.ct.length) p.ct.forEach(c => L.push(`${fmtDate(c.date)} ${c.title || "CT"}: ${c.conclusion || "-"}`)); else L.push("-");
@@ -1130,7 +1161,7 @@ function renderSummary(id) {
     </div>
     <div class="sheet-b">
       <section class="blk"><h2>Diagnosis</h2><div class="v${p.diagnosis ? "" : " none"}">${esc(p.diagnosis || "Not recorded")}<div style="color:var(--muted);font-size:14px;margin-top:4px">Comorbidities: ${esc(p.comorbid || "none")}</div></div></section>
-      <section class="blk"><h2>Treatment</h2><div class="v${p.treatment || (p.meds||[]).length ? "" : " none"}">${p.treatment || (p.meds||[]).length ? esc(p.treatment) + ((p.meds||[]).length ? `<ul style="margin:${p.treatment ? "8px" : "0"} 0 0;padding-left:20px;white-space:normal">${p.meds.map(m => `<li>${esc(m)}</li>`).join("")}</ul>` : "") : "Not recorded"}</div></section>
+      <section class="blk"><h2>Treatment</h2><div class="v${p.treatment || (p.meds||[]).length ? "" : " none"}">${p.treatment || (p.meds||[]).length ? esc(p.treatment) + ((p.meds||[]).length ? `<ul style="margin:${p.treatment ? "8px" : "0"} 0 0;padding-left:20px;white-space:normal">${patientMeds(p).map(m => `<li>${esc(m.name)}${m.freq ? " <b>" + esc(m.freq) + "</b>" : ""} <span style="color:var(--muted)">· Day ${medDay(m)}</span></li>`).join("")}</ul>` : "") : "Not recorded"}</div></section>
       <section class="blk"><h2>CT</h2><div class="v${p.ct.length ? "" : " none"}">${p.ct.length ? p.ct.map(c => `<blockquote class="ctq"><div class="src">${esc(fmtDate(c.date))} · ${esc(c.title || "CT")}</div>${esc(c.conclusion || "No conclusion recorded")}</blockquote>`).join("") : "No CT reports"}</div></section>
       <section class="blk"><h2>Labs</h2>${(p.labs||[]).length ? `<div class="v">${p.labs.map((l, li) => `<div class="ctq"><div class="src">${esc(fmtDate(l.date))}${l.title ? " · " + esc(l.title) : ""}</div>${l.notes ? esc(l.notes) : ""}<div class="thumbs" style="margin-top:6px;white-space:normal">${l.pages.map((src, j) => `<button class="thumb tap" data-lab="${li}" data-pg="${j}" style="padding:0" aria-label="Open lab page ${j+1}"><img src="${src}" alt="Lab results page ${j+1}"></button>`).join("")}</div></div>`).join("")}</div>` : `<div class="v none">No lab results</div>`}</section>
       <section class="blk"><h2>Plan</h2>${v(p.plan)}</section>
