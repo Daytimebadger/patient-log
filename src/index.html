@@ -874,7 +874,8 @@ async function exportBackup() {
   const stamp = new Date();
   let data = JSON.stringify({ app: "ward-patient-log", version: 1, exported: stamp.toISOString(), medButtons: medButtons(), patients: patients.filter(p => !p.example) });
   if (backupPassword()) data = await encryptBackup(data, backupPassword());
-  const filename = `patient-log-backup-${stamp.toISOString().slice(0,16).replace("T", "_").replace(":", "")}.json`;
+  const z = n => String(n).padStart(2, "0"); // phone's local date and time, newest sorts last
+  const filename = `Patient-log-backup-${stamp.getFullYear()}-${z(stamp.getMonth() + 1)}-${z(stamp.getDate())}-at-${z(stamp.getHours())}h${z(stamp.getMinutes())}.json`;
   const done = () => { lsSet("wpl-last-backup", stamp.toISOString()); lsSet("wpl-deleted-since", "0"); toast("Backup saved"); if (!location.hash || location.hash === "#options") route(); };
   // 1. iPhone / Android share sheet: "Save to Files" lets you pick the folder
   try {
