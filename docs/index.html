@@ -1289,8 +1289,7 @@ function extractLabValues(raw) {
       if (!n) continue;
       const v = parseFloat(n[1].replace(",", "."));
       if (v < lo || v > hi) continue;
-      const flag = /^\S+\s*\b([HL])\b/.exec(after) || /^\S+\s*(\*|↑|↓)/.exec(after) || /\s([HL])\s*$/.exec(after); // flag after the value or at the end of the line
-      got.push(`${name} ${n[1].replace(",", ".")}${flag ? (flag[1] === "H" || flag[1] === "↑" ? " (H)" : flag[1] === "L" || flag[1] === "↓" ? " (L)" : " (*)") : ""}`);
+      got.push(`${name} ${n[1].replace(",", ".")}`);
       break;
     }
   }
@@ -1330,6 +1329,20 @@ function microSummary(lines) {
     parts.push("Culture: " + orgs.join(", ") + (sens ? " (" + sens + ")" : ""));
   } else if (none) parts.push("Culture: " + none[1].trim().toLowerCase());
   return parts.join(". ");
+}
+
+function handoverMicro(p) {
+  // handover keeps micro short: latest organism(s) only, genus abbreviated (S. aureus); no bloods, no sensitivities
+  for (const l of [...(p.labs || [])].reverse()) {
+    const line = (l.notes || "").split("\n").find(x => /^\s*micro\s*:/i.test(x)); if (!line) continue;
+    const body = line.replace(/^\s*micro\s*:\s*/i, "");
+    const cult = body.match(/culture\s*:\s*([^.(]+)/i);
+    const gram = body.match(/gram\s*stain\s*:\s*([^.(]+)/i);
+    let t = cult ? cult[1] : gram ? gram[1] : body.replace(/\([^)]*\)/g, "");
+    t = t.replace(/\b([A-Z])[a-z]{3,}\s+(?=[a-z]{3,}\b|spp?\b)/g, "$1. ").replace(/\s+/g, " ").trim().replace(/[.;,]$/, "");
+    if (t) return t;
+  }
+  return "";
 }
 
 /* ---------- ward round list ---------- */
@@ -1382,8 +1395,8 @@ function handover(p, opts = {}) {
   if (meds || p.treatment) parts.push(sentence(`Currently on ${[meds, lowerFirst(p.treatment)].filter(Boolean).join("; ")}`.replace(/^Currently on ;?\s*/, "Currently on ")));
   const ct = p.ct.filter(c => c.conclusion).at(-1);
   if (ct) parts.push(sentence(`${ct.title && ct.title !== "CT" ? ct.title : "CT"}${ct.date ? " (" + fmtDate(ct.date) + ")" : ""}: ${lowerFirst(ct.conclusion.replace(/\n+/g, " "))}`));
-  const lab = (p.labs || []).filter(l => l.notes).at(-1);
-  if (lab) parts.push(sentence(`Labs${lab.date ? " (" + fmtDate(lab.date) + ")" : ""}: ${lab.notes.replace(/\s*\n+\s*/g, ". ")}`));
+  const micro = handoverMicro(p);
+  if (micro) parts.push(sentence("Micro: " + micro));
   if (p.plan) parts.push(sentence(`Current plan: ${lowerFirst(p.plan)}`));
   if (p.dispo) parts.push(sentence(`${DISPO[p.dispo]}${p.dispoNote ? ": " + lowerFirst(p.dispoNote) : ""}`));
   return parts.join(" ");
