@@ -762,7 +762,7 @@ function renderList(past = false) {
     $("#plist").innerHTML = rows.length ? groups.filter(g => g[2].length).map(([t, sub, list]) =>
         `${t ? `<h2 class="ghead">${t} <small>${sub ? esc(sub) + " · " : ""}${list.length}</small></h2>` : ""}<ul class="plist" style="margin-top:${t ? 8 : 16}px">${list.map(card).join("")}</ul>`).join("")
       : `<div class="empty">${emptyMsg}</div>`;
-    $("#plist").querySelectorAll(".pcard").forEach(b => b.onclick = () => go("edit-" + b.dataset.id));
+    $("#plist").querySelectorAll(".pcard").forEach(b => b.onclick = () => go("summary-" + b.dataset.id));
   };
   draw();
   $("#q").oninput = e => { filter.q = e.target.value; draw(); };
@@ -967,17 +967,16 @@ function renderEdit(id) {
 
   <section class="sec" aria-labelledby="h-ct">
     <div class="sec-h"><h2 id="h-ct">CT reports</h2>
-      <label class="btn filebtn">${icon("doc")}Add CT report<input type="file" id="ctf" accept="application/pdf,image/*,.txt"></label></div>
-    <p class="hint">Upload the report as a PDF, a photo of the printout or a text file. The conclusion (or impression / comment) is found and copied in; edit it if needed.</p>
+      <div class="row" style="gap:8px"><button class="btn" id="ctpaste">${icon("copy")}Paste</button><label class="btn filebtn">${icon("doc")}Add<input type="file" id="ctf" accept="application/pdf,image/*,.txt"></label></div></div>
+    <p class="hint">Paste a report you've copied (text or a screenshot), or add a PDF or photo. The conclusion (or impression / comment) is found and copied in; edit it if needed.</p>
     <div class="status" id="ct-st"></div>
     <div class="stack" id="ctlist"></div>
-    <button class="ghost" id="ctpaste" style="align-self:flex-start">${icon("plus")}Paste report text instead</button>
   </section>
 
   <section class="sec" aria-labelledby="h-lab">
     <div class="sec-h"><h2 id="h-lab">Lab results</h2>
-      <label class="btn filebtn">${icon("doc")}Add lab results<input type="file" id="labf" accept="application/pdf,image/*" multiple></label></div>
-    <p class="hint">Upload a screenshot or PDF of the results. The file is kept as it is, and the key results are summarised above it.</p>
+      <div class="row" style="gap:8px"><button class="btn" id="labpaste">${icon("copy")}Paste</button><label class="btn filebtn">${icon("doc")}Add<input type="file" id="labf" accept="application/pdf,image/*" multiple></label></div></div>
+    <p class="hint">Paste results you've copied (text or a screenshot), or add a screenshot or PDF. The original is kept as it is, and the key results are summarised above it.</p>
     <div class="status" id="lab-st"></div>
     <div class="stack" id="lablist"></div>
   </section>
@@ -1075,9 +1074,16 @@ function renderEdit(id) {
     });
   };
   drawCT();
-  $("#ctpaste").onclick = () => { p.ct.push({ id: uid(), date: new Date().toISOString().slice(0,10), title: "CT", conclusion: "", raw: "", pasting: true }); drawCT(); $("#ctlist .ct:last-child details textarea").focus(); };
-  $("#ctf").onchange = async e => {
-    const f = e.target.files[0]; if (!f) return; e.target.value = "";
+  const ctManual = () => { p.ct.push({ id: uid(), date: new Date().toISOString().slice(0,10), title: "CT", conclusion: "", raw: "", pasting: true }); drawCT(); $("#ctlist .ct:last-child details textarea").focus(); };
+  $("#ctpaste").onclick = async () => {
+    const c = await readClipboard();
+    if (c.file) return ctFromFile(c.file);
+    if (c.text) return ctFromFile(new File([c.text], "Pasted text.txt", { type: "text/plain" }));
+    ctManual(); $("#ct-st").className = "status err";
+    $("#ct-st").textContent = c.denied ? "The phone didn't allow reading the clipboard. Paste into the box below instead." : "Nothing copied yet. Copy the report (or a screenshot of it) first, or paste into the box below.";
+  };
+  $("#ctf").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) ctFromFile(f); };
+  const ctFromFile = async f => {
     const st = $("#ct-st");
     const prog = (s, v) => { st.className = "status"; st.innerHTML = `${esc(s)}… <span class="bar-p"><i style="width:${Math.round(v*100)}%"></i></span>`; };
     try {
@@ -1158,14 +1164,22 @@ function renderEdit(id) {
     });
   };
   drawLabs();
-  $("#labf").onchange = async e => {
-    const files = [...e.target.files]; e.target.value = "";
+  $("#labf").onchange = e => { const files = [...e.target.files]; e.target.value = ""; if (files.length) labFromFiles(files); };
+  $("#labpaste").onclick = async () => {
+    const c = await readClipboard();
+    if (c.file) return labFromFiles([c.file]);
+    if (c.text) return labFromFiles([new File([c.text], "Pasted text.txt", { type: "text/plain" })]);
+    $("#lab-st").className = "status err";
+    $("#lab-st").textContent = c.denied ? "The phone didn't allow reading the clipboard. Try Paste again and tap the Paste bubble." : "Nothing copied yet. Copy the results text or a screenshot first.";
+  };
+  const labFromFiles = async files => {
     const st = $("#lab-st"); st.className = "status"; st.textContent = "Opening…";
     try {
       const pages = [], originals = []; let text = "";
       const prog = (s, v) => { st.className = "status"; st.innerHTML = `${esc(s)}… <span class="bar-p"><i style="width:${Math.round(v*100)}%"></i></span>`; };
       for (const f of files) {
         originals.push({ name: f.name, type: f.type || (/\.pdf$/i.test(f.name) ? "application/pdf" : "image/jpeg"), data: await fileToDataURL(f) });
+        if (/^text\//.test(f.type)) { text += await f.text() + "\n"; continue; }
         if (/pdf$/i.test(f.type) || /\.pdf$/i.test(f.name)) { pages.push(...await pdfPages(f, 12)); text += await pdfText(f, prog) + "\n"; }
         else { const img = await fileToImage(f); pages.push(drawScaled(img, 2000).toDataURL("image/jpeg", 0.85)); text += await ocrImage(prepForOcr(img), prog, "6") + "\n"; }
       }
@@ -1173,7 +1187,7 @@ function renderEdit(id) {
       p.labs.push({ id: uid(), date: new Date().toISOString().slice(0,10), title: found.title, notes: found.notes, raw: text.trim(), pages, files: originals, file: files.map(f => f.name).join(", ") });
       await save(p); drawLabs(); markSaved();
       st.className = found.count ? "status ok" : "status err";
-      st.textContent = `Added ${pages.length} page${pages.length === 1 ? "" : "s"}. ` + (found.count ? `Picked out ${found.count} result${found.count === 1 ? "" : "s"}; check them against the report.` : "No key values were recognised; type them in from the report.");
+      st.textContent = (pages.length ? `Added ${pages.length} page${pages.length === 1 ? "" : "s"}. ` : "Added the pasted text. ") + (found.count ? `Picked out ${found.count} result${found.count === 1 ? "" : "s"}; check them against the report.` : "No key values were recognised; type them in from the report.");
     } catch (err) { console.error(err); st.className = "status err"; st.textContent = "Couldn't open that file (" + (err.message || err) + ")."; }
   };
 
@@ -1238,19 +1252,34 @@ async function pdfPages(file, max) {
   }
   return out;
 }
+async function readClipboard() {
+  // whatever was copied elsewhere: a screenshot/image, a PDF if the app put one there, or text
+  if (navigator.clipboard?.read) {
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        const t = item.types.find(x => x === "application/pdf") || item.types.find(x => x.startsWith("image/"));
+        if (t) { const b = await item.getType(t); return { file: new File([b], t === "application/pdf" ? "Pasted.pdf" : "Pasted image." + (t.split("/")[1] || "png"), { type: t }) }; }
+        if (item.types.includes("text/plain")) { const tx = await (await item.getType("text/plain")).text(); if (tx.trim()) return { text: tx }; }
+      }
+    } catch (e) { if (e.name === "NotAllowedError") return { denied: true }; }
+  }
+  try { const tx = await navigator.clipboard.readText(); if (tx.trim()) return { text: tx }; } catch (e) { return { denied: true }; }
+  return {};
+}
 const fileToDataURL = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(f); });
 async function openOriginal(o) {
   // the uploaded file exactly as it was: images in the viewer, PDFs in the phone's PDF viewer
   if (/^image\//.test(o.type)) return openViewer([o.data]);
+  if (/^text\//.test(o.type)) { const t = await (await fetch(o.data)).text(); return openViewer([], 0, t); }
   const blob = await (await fetch(o.data)).blob(), url = URL.createObjectURL(blob);
   setTimeout(() => URL.revokeObjectURL(url), 120000);
   const w = window.open(url, "_blank");
   if (!w) { try { await navigator.share({ files: [new File([blob], o.name || "lab-results.pdf", { type: o.type })] }); } catch {} }
 }
 const origButtons = (l, attr) => (l.files || []).map((o, j) => `<button class="ghost" ${attr}="${j}">${icon("doc")}Open ${esc(o.name || (/pdf/.test(o.type) ? "PDF" : "image"))}</button>`).join("");
-function openViewer(pages, start = 0) {
+function openViewer(pages, start = 0, text = "") {
   const v = document.createElement("div"); v.className = "viewer"; v.setAttribute("role", "dialog"); v.setAttribute("aria-label", "Full size view");
-  v.innerHTML = `<div class="vb"><button id="vclose">Close</button></div><div class="vi">${pages.map((src, i) => `<img src="${src}" alt="Page ${i+1}" data-i="${i}">`).join("")}</div>`;
+  v.innerHTML = `<div class="vb"><button id="vclose">Close</button></div><div class="vi">${pages.map((src, i) => `<img src="${src}" alt="Page ${i+1}" data-i="${i}">`).join("")}${text ? `<pre style="white-space:pre-wrap;background:#fff;color:#111;padding:14px;margin:0 12px;border-radius:8px;font-size:14px">${esc(text)}</pre>` : ""}</div>`;
   document.body.appendChild(v); document.body.style.overflow = "hidden";
   const close = () => { v.remove(); document.body.style.overflow = ""; removeEventListener("keydown", esc_); };
   const esc_ = e => { if (e.key === "Escape") close(); };
