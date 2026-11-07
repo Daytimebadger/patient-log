@@ -121,7 +121,10 @@ input[type="date"]{min-width:0;max-width:100%;-webkit-appearance:none;appearance
 .ct{border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--bg)}
 .ct-found{font-size:13px;font-weight:700;color:var(--green)}
 details summary{cursor:pointer;font-size:14px;color:var(--muted);font-weight:700}
-.medbox>summary{font-size:16px;color:var(--fg);padding:10px 0}
+.medtoggle{all:unset;cursor:pointer;display:block;font-size:16px;font-weight:700;padding:10px 0;color:var(--fg)}
+.medtoggle::before{content:"▸ ";color:var(--muted)}
+.medbox.open .medtoggle::before{content:"▾ "}
+.medbox:not(.open) .medrow:not(.on),.medbox:not(.open) .medhint,.medbox:not(.open) .meds>.hint{display:none}
 .pastezone{border:2px dashed var(--accent);border-radius:var(--r);padding:18px 14px;text-align:center;color:var(--muted);font-size:15px;min-height:60px;outline:none;-webkit-user-select:text;user-select:text}
 .pastezone:focus{background:var(--surface)}
 .filebtn{position:relative;overflow:hidden}
@@ -966,9 +969,10 @@ function renderEdit(id) {
   <section class="sec" aria-labelledby="h-tx">
     <h2 id="h-tx">Treatment</h2>
     <textarea id="treatment" data-k="treatment" placeholder="Management so far and plan" aria-labelledby="h-tx">${esc(p.treatment)}</textarea>
-    <details class="medbox"><summary id="medsum">Meds</summary>
-      <p class="hint" style="margin:8px 0">Tap a name to start or stop it, then pick how often.</p>
-      <div class="meds" id="meds"></div></details>
+    <div class="medbox" id="medbox">
+      <button type="button" class="medtoggle" id="medsum" aria-expanded="false" aria-controls="meds">Meds</button>
+      <p class="hint medhint" style="margin:0 0 8px">Tap a name to start or stop it, then pick how often.</p>
+      <div class="meds" id="meds"></div></div>
     <label class="f"><span>Current plan</span><textarea id="plan" data-k="plan" rows="3" placeholder="e.g. Check corneal infiltrate daily, follow up on lab results">${esc(p.plan)}</textarea></label>
   </section>
 
@@ -1108,7 +1112,7 @@ function renderEdit(id) {
   // medicines
   patientMeds(p);
   const drawMeds = () => {
-    $("#medsum").textContent = p.meds.length ? `Meds (${p.meds.length} on)` : "Meds";
+    $("#medsum").textContent = p.meds.length ? `Meds (${p.meds.length} on)` : "Meds (none on)";
     const btns = medButtons(), names = btns.map(b => b.name);
     p.meds.forEach(m => { if (!names.includes(m.name)) names.push(m.name); }); // keep meds whose button was deleted
     const abc = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" });
@@ -1147,6 +1151,7 @@ function renderEdit(id) {
     });
   };
   drawMeds();
+  $("#medsum").onclick = () => { const o = $("#medbox").classList.toggle("open"); $("#medsum").setAttribute("aria-expanded", String(o)); };
 
   // lab results
   p.labs = p.labs || [];
