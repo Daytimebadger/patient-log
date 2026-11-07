@@ -91,6 +91,7 @@ label.f span{letter-spacing:.03em}
 .status.ok{color:var(--green)}
 .unsure{box-shadow:0 0 0 2px #f59e0b;border-color:#f59e0b!important}
 .status.warn{color:#b45309}
+@media print{.noprint{display:none!important}}
 .bar-p{height:4px;background:var(--sunk);border-radius:4px;overflow:hidden;flex:1;max-width:160px}
 .bar-p i{display:block;height:100%;background:var(--accent);width:0;transition:width .2s}
 .sticker{background:var(--label);border:1px solid var(--label-line);border-radius:6px;padding:10px 12px;font-family:var(--f-mono);font-size:13px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto}
@@ -976,7 +977,7 @@ function renderEdit(id) {
   <section class="sec" aria-labelledby="h-lab">
     <div class="sec-h"><h2 id="h-lab">Lab results</h2>
       <label class="btn filebtn">${icon("doc")}Add lab results<input type="file" id="labf" accept="application/pdf,image/*" multiple></label></div>
-    <p class="hint">Upload a photo or PDF of the results. Tap a page to see it full size, and note the key values underneath.</p>
+    <p class="hint">Upload a screenshot or PDF of the results. The file is kept as it is, and the key results are summarised above it.</p>
     <div class="status" id="lab-st"></div>
     <div class="stack" id="lablist"></div>
   </section>
@@ -1145,13 +1146,14 @@ function renderEdit(id) {
       <div class="grid32">
         <label class="f"><span>Results</span><input data-lk="title" value="${esc(l.title)}" placeholder="e.g. FBC, U&amp;E, CRP"></label>
         <label class="f"><span>Date</span><input data-lk="date" type="date" value="${esc(l.date)}"></label></div>
+      <label class="f"><span>Summary</span><textarea data-lk="notes" rows="${Math.min(10, Math.max(3, Math.ceil((l.notes || "").length / 32) + 1))}" placeholder="Bloods: Na 135, K 5.0, Urea 11&#10;Micro: Culture: Staphylococcus aureus (S: cloxacillin; R: penicillin)">${esc(l.notes)}</textarea></label>
       <div class="thumbs">${l.pages.map((src, j) => `<button class="thumb tap" data-pg="${j}" aria-label="Open page ${j+1}" style="padding:0"><img src="${src}" alt="Lab results page ${j+1}"></button>`).join("")}</div>
-      <label class="f"><span>Key results</span><textarea data-lk="notes" rows="2" placeholder="e.g. Hb 9.8, WCC 15.2, CRP 140">${esc(l.notes)}</textarea></label>
-      <div class="row"><button class="ghost danger" data-act="rm">Remove results</button></div></div>`).join("");
+      <div class="row">${origButtons(l, "data-orig")}<button class="ghost danger" data-act="rm">Remove results</button></div></div>`).join("");
     $("#lablist").querySelectorAll(".ct").forEach(box => {
       const l = p.labs[+box.dataset.i];
       box.querySelectorAll("[data-lk]").forEach(el => el.addEventListener("input", () => { l[el.dataset.lk] = el.value; autosave(); }));
       box.querySelectorAll("[data-pg]").forEach(b => b.onclick = () => openViewer(l.pages, +b.dataset.pg));
+      box.querySelectorAll("[data-orig]").forEach(b => b.onclick = () => openOriginal(l.files[+b.dataset.orig]));
       box.querySelector('[data-act="rm"]').onclick = () => { p.labs.splice(+box.dataset.i, 1); autosave(); drawLabs(); };
     });
   };
@@ -1160,14 +1162,15 @@ function renderEdit(id) {
     const files = [...e.target.files]; e.target.value = "";
     const st = $("#lab-st"); st.className = "status"; st.textContent = "Opening…";
     try {
-      const pages = []; let text = "";
+      const pages = [], originals = []; let text = "";
       const prog = (s, v) => { st.className = "status"; st.innerHTML = `${esc(s)}… <span class="bar-p"><i style="width:${Math.round(v*100)}%"></i></span>`; };
       for (const f of files) {
-        if (/pdf$/i.test(f.type) || /\.pdf$/i.test(f.name)) { pages.push(...await pdfPages(f, 6)); text += await pdfText(f, prog) + "\n"; }
+        originals.push({ name: f.name, type: f.type || (/\.pdf$/i.test(f.name) ? "application/pdf" : "image/jpeg"), data: await fileToDataURL(f) });
+        if (/pdf$/i.test(f.type) || /\.pdf$/i.test(f.name)) { pages.push(...await pdfPages(f, 12)); text += await pdfText(f, prog) + "\n"; }
         else { const img = await fileToImage(f); pages.push(drawScaled(img, 2000).toDataURL("image/jpeg", 0.85)); text += await ocrImage(prepForOcr(img), prog, "6") + "\n"; }
       }
       const found = extractLabValues(text);
-      p.labs.push({ id: uid(), date: new Date().toISOString().slice(0,10), title: found.title, notes: found.notes, raw: text.trim(), pages, file: files.map(f => f.name).join(", ") });
+      p.labs.push({ id: uid(), date: new Date().toISOString().slice(0,10), title: found.title, notes: found.notes, raw: text.trim(), pages, files: originals, file: files.map(f => f.name).join(", ") });
       await save(p); drawLabs(); markSaved();
       st.className = found.count ? "status ok" : "status err";
       st.textContent = `Added ${pages.length} page${pages.length === 1 ? "" : "s"}. ` + (found.count ? `Picked out ${found.count} result${found.count === 1 ? "" : "s"}; check them against the report.` : "No key values were recognised; type them in from the report.");
@@ -1235,6 +1238,16 @@ async function pdfPages(file, max) {
   }
   return out;
 }
+const fileToDataURL = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(f); });
+async function openOriginal(o) {
+  // the uploaded file exactly as it was: images in the viewer, PDFs in the phone's PDF viewer
+  if (/^image\//.test(o.type)) return openViewer([o.data]);
+  const blob = await (await fetch(o.data)).blob(), url = URL.createObjectURL(blob);
+  setTimeout(() => URL.revokeObjectURL(url), 120000);
+  const w = window.open(url, "_blank");
+  if (!w) { try { await navigator.share({ files: [new File([blob], o.name || "lab-results.pdf", { type: o.type })] }); } catch {} }
+}
+const origButtons = (l, attr) => (l.files || []).map((o, j) => `<button class="ghost" ${attr}="${j}">${icon("doc")}Open ${esc(o.name || (/pdf/.test(o.type) ? "PDF" : "image"))}</button>`).join("");
 function openViewer(pages, start = 0) {
   const v = document.createElement("div"); v.className = "viewer"; v.setAttribute("role", "dialog"); v.setAttribute("aria-label", "Full size view");
   v.innerHTML = `<div class="vb"><button id="vclose">Close</button></div><div class="vi">${pages.map((src, i) => `<img src="${src}" alt="Page ${i+1}" data-i="${i}">`).join("")}</div>`;
@@ -1267,7 +1280,7 @@ function extractLabValues(raw) {
       if (!n) continue;
       const v = parseFloat(n[1].replace(",", "."));
       if (v < lo || v > hi) continue;
-      const flag = /^\S+\s*\b([HL])\b/.exec(after) || /^\S+\s*(\*|↑|↓)/.exec(after);
+      const flag = /^\S+\s*\b([HL])\b/.exec(after) || /^\S+\s*(\*|↑|↓)/.exec(after) || /\s([HL])\s*$/.exec(after); // flag after the value or at the end of the line
       got.push(`${name} ${n[1].replace(",", ".")}${flag ? (flag[1] === "H" || flag[1] === "↑" ? " (H)" : flag[1] === "L" || flag[1] === "↓" ? " (L)" : " (*)") : ""}`);
       break;
     }
@@ -1280,9 +1293,34 @@ function extractLabValues(raw) {
     if (take > 0 && l) { micro.push(l); take--; } else if (!l) take = Math.min(take, 1);
     if (micro.join(" ").length > 500) break;
   }
-  const notes = [got.join(", "), micro.length ? "Micro: " + micro.join("; ") : ""].filter(Boolean).join("\n");
+  const mic = microSummary(lines);
+  const microText = mic || (micro.length ? micro.join("; ") : "");
+  const notes = [got.length ? "Bloods: " + got.join(", ") : "", microText ? "Micro: " + microText : ""].filter(Boolean).join("\n");
   const title = [got.some(g => /^(Hb|WCC|Plt)/.test(g)) ? "FBC" : "", got.some(g => /^(Urea|Creat|Na|K) /.test(g)) ? "U&E" : "", micro.length ? "Micro" : ""].filter(Boolean).join(", ");
   return { notes, title, count: got.length + (micro.length ? 1 : 0) };
+}
+
+const GENERA = "Staphylococcus|Streptococcus|Enterococcus|Escherichia|Klebsiella|Pseudomonas|Acinetobacter|Enterobacter|Proteus|Serratia|Citrobacter|Morganella|Salmonella|Shigella|Haemophilus|Moraxella|Neisseria|Stenotrophomonas|Bacillus|Corynebacterium|Nocardia|Candida|Aspergillus|Fusarium|Cryptococcus|Mycobacterium|Clostridi(?:um|oides)|Bacteroides";
+const ANTIBIOTIC = /(cillin|mycin|micin|floxacin|^cef|^ceph|penem|cycline|azole|trimoxazole|co-trimoxazole|vancomycin|linezolid|teicoplanin|colistin|fosfomycin|nitrofurantoin|clindamycin|amikacin|gentamicin|tazobactam|clavulan|sulbactam|rifampicin|fusidic|tigecycline|daptomycin|nystatin|fungin|amphotericin)/i;
+function microSummary(lines) {
+  // Gram stain, organism(s) and sensitivities in one short line
+  const txt = lines.join("\n"), parts = [];
+  const gram = txt.match(/gram\s*stain[^\n:]*[:\-]?\s*([^\n]{3,80})/i) || txt.match(/\b(gram[-\s]?(?:positive|negative)\s+(?:cocci|bacilli|rods|diplococci|coccobacilli)[^\n.;]{0,40}|no\s+organisms\s+seen)/i);
+  if (gram) parts.push("Gram stain: " + gram[1].trim().replace(/[.;,]$/, ""));
+  const orgs = [...new Set((txt.match(new RegExp("\\b(?:(?:" + GENERA + ")\\s+(?:[a-z]{3,}|spp?\\.?)|(?:MRSA|ESBL[^\\n,;]{0,20})|coagulase[-\\s]negative\\s+staphylococc\\w*|(?:E|S|K|P)\\.\\s?(?:coli|aureus|pneumoniae|aeruginosa|epidermidis))", "g")) || []).map(o => o.trim()))];
+  const none = txt.match(/\b(no\s+growth[^\n.;]{0,30}|no\s+pathogens?\s+isolated|mixed\s+growth[^\n.;]{0,30}|culture\s+negative|sterile)/i);
+  const S = [], R = [], I = [];
+  for (const l of lines) {
+    const m = l.match(/^([A-Za-z][A-Za-z\/\- ]{3,40}?)\s*[:.]?\s+(S|R|I|Sensitive|Susceptible|Resistant|Intermediate)\b/i);
+    if (!m || !ANTIBIOTIC.test(m[1].trim())) continue;
+    const a = m[1].trim().toLowerCase(), r = m[2][0].toUpperCase();
+    (r === "S" ? S : r === "R" ? R : I).push(a);
+  }
+  if (orgs.length) {
+    const sens = [S.length ? "S: " + S.join(", ") : "", R.length ? "R: " + R.join(", ") : "", I.length ? "I: " + I.join(", ") : ""].filter(Boolean).join("; ");
+    parts.push("Culture: " + orgs.join(", ") + (sens ? " (" + sens + ")" : ""));
+  } else if (none) parts.push("Culture: " + none[1].trim().toLowerCase());
+  return parts.join(". ");
 }
 
 /* ---------- ward round list ---------- */
@@ -1382,7 +1420,7 @@ function renderSummary(id) {
       <section class="blk"><h2>Diagnosis</h2><div class="v${p.diagnosis ? "" : " none"}">${esc(p.diagnosis || "Not recorded")}<div style="color:var(--muted);font-size:14px;margin-top:4px">Comorbidities: ${esc(p.comorbid || "none")}</div></div></section>
       <section class="blk"><h2>Treatment</h2><div class="v${p.treatment || (p.meds||[]).length ? "" : " none"}">${p.treatment || (p.meds||[]).length ? esc(p.treatment) + ((p.meds||[]).length ? `<ul style="margin:${p.treatment ? "8px" : "0"} 0 0;padding-left:20px;white-space:normal">${patientMeds(p).map(m => `<li>${esc(m.name)}${m.freq ? " <b>" + esc(m.freq) + "</b>" : ""} <span style="color:var(--muted)">· Day ${medDay(m)}</span></li>`).join("")}</ul>` : "") : "Not recorded"}</div></section>
       <section class="blk"><h2>CT</h2><div class="v${p.ct.length ? "" : " none"}">${p.ct.length ? p.ct.map(c => `<blockquote class="ctq"><div class="src">${esc(fmtDate(c.date))} · ${esc(c.title || "CT")}</div>${esc(c.conclusion || "No conclusion recorded")}</blockquote>`).join("") : "No CT reports"}</div></section>
-      <section class="blk"><h2>Labs</h2>${(p.labs||[]).length ? `<div class="v">${p.labs.map((l, li) => `<div class="ctq"><div class="src">${esc(fmtDate(l.date))}${l.title ? " · " + esc(l.title) : ""}</div>${l.notes ? esc(l.notes) : ""}<div class="thumbs" style="margin-top:6px;white-space:normal">${l.pages.map((src, j) => `<button class="thumb tap" data-lab="${li}" data-pg="${j}" style="padding:0" aria-label="Open lab page ${j+1}"><img src="${src}" alt="Lab results page ${j+1}"></button>`).join("")}</div></div>`).join("")}</div>` : `<div class="v none">No lab results</div>`}</section>
+      <section class="blk"><h2>Labs</h2>${(p.labs||[]).length ? `<div class="v">${p.labs.map((l, li) => `<div class="ctq"><div class="src">${esc(fmtDate(l.date))}${l.title ? " · " + esc(l.title) : ""}</div>${l.notes ? `<div style="white-space:pre-line">${esc(l.notes)}</div>` : ""}<div class="thumbs" style="margin-top:6px;white-space:normal">${l.pages.map((src, j) => `<button class="thumb tap" data-lab="${li}" data-pg="${j}" style="padding:0" aria-label="Open lab page ${j+1}"><img src="${src}" alt="Lab results page ${j+1}"></button>`).join("")}</div>${(l.files || []).length ? `<div class="row noprint" style="margin-top:6px">${origButtons(l, `data-labf="${li}" data-f`)}</div>` : ""}</div>`).join("")}</div>` : `<div class="v none">No lab results</div>`}</section>
       <section class="blk"><h2>Plan</h2>${v(p.plan)}</section>
       ${p.dispo ? `<section class="blk"><h2>Disposition</h2><div class="v"><b>${esc(DISPO[p.dispo])}</b>${p.dispoDate ? " · " + esc(fmtDate(p.dispoDate)) : ""}${p.dispoNote ? "\n" + esc(p.dispoNote) : ""}</div></section>` : ""}
       ${p.photos.length ? `<section class="blk"><h2>Photos</h2><div class="thumbs">${p.photos.map((ph, i) => `<figure><div class="thumb"><img src="${ph.src}" alt="${esc(ph.caption || "Clinical photo " + (i+1))}"></div>${ph.caption ? `<figcaption>${esc(ph.caption)}</figcaption>` : ""}</figure>`).join("")}</div></section>` : ""}
@@ -1407,6 +1445,7 @@ function renderSummary(id) {
     await save(p); toast("Back on the active list. Update the ward and admission details."); go("edit-" + p.id);
   };
   $("#app").querySelectorAll("[data-lab]").forEach(b => b.onclick = () => openViewer(p.labs[+b.dataset.lab].pages, +b.dataset.pg));
+  $("#app").querySelectorAll("[data-labf]").forEach(b => b.onclick = () => openOriginal(p.labs[+b.dataset.labf].files[+b.dataset.f]));
   $("#hobtn").onclick = () => { $("#hotext").value = handover(p); $("#ho").hidden = false; $("#ho").scrollIntoView({behavior: "smooth", block: "start"}); };
   $("#hoclose").onclick = () => { $("#ho").hidden = true; };
   $("#hocopy").onclick = () => {
