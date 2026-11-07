@@ -642,7 +642,9 @@ const HEADINGS = [
   ["opinion", /\b(opinion)\b/i], ["comment", /\b(comments?)\b/i],
   ["summary", /\b(summary)\b/i], ["interpretation", /\b(interpretation)\b/i]
 ];
-const STOP = /^\s*(reported\s+by|report(ed)?\s+(date|on)|electronically\s+(signed|verified)|verified\s+by|authori[sz]ed\s+by|signed\s+(by|electronically)|dictated|transcribed|typed\s+by|radiologist|consultant\s+radiologist|dr\.?\s+[a-z]+.*\b(frcr|radiolog)|gmc\b|this\s+report|page\s+\d+\s+of|end\s+of\s+report|recommendations?\s*:|addendum|findings\s*:|technique\s*:|clinical\s+(details|history|indication)\s*:|history\s*:)/i;
+const STOP = /^\s*(reported\s+by|report(ed)?\s+(date|on)|electronically\s+(signed|verified)|verified\s+by|authori[sz]ed\s+by|signed\s+(by|electronically)|dictated|transcribed|typed\s+by|radiologist|consultant\s+radiologist|dr\.?\s+[a-z]+.*\b(frcr|radiolog)|gmc\b|this\s+report|page\s+\d+\s+of|end\s+of\s+report|recommendations?\s*:|addendum|findings\s*:|technique\s*:|clinical\s+(details|history|indication)\s*:|history\s*:|(kind\s+|best\s+)?regards|thank\s*(you|s)\b|sincerely|yours\s+(faithfully|sincerely)|(dr|prof)\.?\s+[A-Z]|registrar|radiographer|consultant\b|reporting\b|m\.?b\.?\s?ch\.?b|mmed|fc\s*rad|f\.?r\.?c\.?r|hpcsa|mp\s*\d|pr\s*no|practice\s+no|\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\s*(\d{1,2}:\d{2})?\s*$)/i;
+// a signature that runs on at the end of a conclusion line: cut it off
+const SIG_INLINE = /\s*(?:[-–—,;]\s*)?\b(?:(?:Dr|Prof)\.?\s+[A-Z][\w.'’\- ]{1,40}|MB\.?\s?Ch\.?B|MMed|FC\s*Rad|FRCR|HPCSA|(?:Kind\s+|Best\s+)?Regards|Thank\s+you)\b.*$/s;
 function findConclusion(raw) {
   const text = raw.replace(/\r/g, "").replace(/[ \t]+/g, " ");
   const lines = text.split("\n");
@@ -665,7 +667,8 @@ function findConclusion(raw) {
       if (body.join(" ").length > 2000) break;
     }
     const out = body.join("\n").replace(/\n{2,}/g, "\n").trim();
-    if (out.length > 3) return { label, text: tidy(out) };
+    const clean = out.split("\n").map(l => l.replace(SIG_INLINE, "").trim()).filter(Boolean).join("\n");
+    if (clean.length > 3) return { label, text: tidy(clean) };
   }
   return null;
 }
