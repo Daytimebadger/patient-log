@@ -130,6 +130,9 @@ input[type="date"]{min-width:0;max-width:100%;-webkit-appearance:none;appearance
 .ct{border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--bg)}
 .ct-found{font-size:13px;font-weight:700;color:var(--green)}
 details summary{cursor:pointer;font-size:14px;color:var(--muted);font-weight:700}
+.medbox>summary{font-size:16px;color:var(--fg);padding:10px 0}
+.pastezone{border:2px dashed var(--accent);border-radius:var(--r);padding:18px 14px;text-align:center;color:var(--muted);font-size:15px;min-height:60px;outline:none;-webkit-user-select:text;user-select:text}
+.pastezone:focus{background:var(--surface)}
 .filebtn{position:relative;overflow:hidden}
 .filebtn input{position:absolute;inset:0;opacity:0;cursor:pointer;font-size:0}
 .actions{position:sticky;bottom:0;background:linear-gradient(transparent,var(--bg) 30%);padding-top:18px;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px));display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:8px}
@@ -972,8 +975,9 @@ function renderEdit(id) {
   <section class="sec" aria-labelledby="h-tx">
     <h2 id="h-tx">Treatment</h2>
     <textarea id="treatment" data-k="treatment" placeholder="Management so far and plan" aria-labelledby="h-tx">${esc(p.treatment)}</textarea>
-    <h3 class="hint" style="font-weight:700">Medicines: tap a name to start or stop it, then pick how often</h3>
-    <div class="meds" id="meds"></div>
+    <details class="medbox"><summary id="medsum">Meds</summary>
+      <p class="hint" style="margin:8px 0">Tap a name to start or stop it, then pick how often.</p>
+      <div class="meds" id="meds"></div></details>
     <label class="f"><span>Current plan</span><textarea id="plan" data-k="plan" rows="3" placeholder="e.g. Check corneal infiltrate daily, follow up on lab results">${esc(p.plan)}</textarea></label>
   </section>
 
@@ -1086,14 +1090,8 @@ function renderEdit(id) {
     });
   };
   drawCT();
-  const ctManual = () => { p.ct.push({ id: uid(), date: new Date().toISOString().slice(0,10), title: "CT", conclusion: "", raw: "", pasting: true }); drawCT(); $("#ctlist .ct:last-child details textarea").focus(); };
-  $("#ctpaste").onclick = async () => {
-    const c = await readClipboard();
-    if (c.file) return ctFromFile(c.file);
-    if (c.text) return ctFromFile(new File([c.text], "Pasted text.txt", { type: "text/plain" }));
-    ctManual(); $("#ct-st").className = "status err";
-    $("#ct-st").textContent = c.denied ? "The phone didn't allow reading the clipboard. Paste into the box below instead." : "Nothing copied yet. Copy the report (or a screenshot of it) first, or paste into the box below.";
-  };
+  $("#ctpaste").onclick = () => pasteZone($("#ct-st"), files => ctFromFile(files[0]),
+    t => ctFromFile(new File([t], "Pasted text.txt", { type: "text/plain" })));
   $("#ctf").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) ctFromFile(f); };
   const ctFromFile = async f => {
     const st = $("#ct-st");
@@ -1119,6 +1117,7 @@ function renderEdit(id) {
   // medicines
   patientMeds(p);
   const drawMeds = () => {
+    $("#medsum").textContent = p.meds.length ? `Meds (${p.meds.length} on)` : "Meds";
     const btns = medButtons(), names = btns.map(b => b.name);
     p.meds.forEach(m => { if (!names.includes(m.name)) names.push(m.name); }); // keep meds whose button was deleted
     const abc = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" });
@@ -1178,13 +1177,8 @@ function renderEdit(id) {
   };
   drawLabs();
   $("#labf").onchange = e => { const files = [...e.target.files]; e.target.value = ""; if (files.length) labFromFiles(files); };
-  $("#labpaste").onclick = async () => {
-    const c = await readClipboard();
-    if (c.file) return labFromFiles([c.file]);
-    if (c.text) return labFromFiles([new File([c.text], "Pasted text.txt", { type: "text/plain" })]);
-    $("#lab-st").className = "status err";
-    $("#lab-st").textContent = c.denied ? "The phone didn't allow reading the clipboard. Try Paste again and tap the Paste bubble." : "Nothing copied yet. Copy the results text or a screenshot first.";
-  };
+  $("#labpaste").onclick = () => pasteZone($("#lab-st"), files => labFromFiles(files),
+    t => labFromFiles([new File([t], "Pasted text.txt", { type: "text/plain" })]));
   const labFromFiles = async files => {
     const st = $("#lab-st"); st.className = "status"; st.textContent = "Opening…";
     try {
@@ -1265,19 +1259,25 @@ async function pdfPages(file, max) {
   }
   return out;
 }
-async function readClipboard() {
-  // whatever was copied elsewhere: a screenshot/image, a PDF if the app put one there, or text
-  if (navigator.clipboard?.read) {
-    try {
-      for (const item of await navigator.clipboard.read()) {
-        const t = item.types.find(x => x === "application/pdf") || item.types.find(x => x.startsWith("image/"));
-        if (t) { const b = await item.getType(t); return { file: new File([b], t === "application/pdf" ? "Pasted.pdf" : "Pasted image." + (t.split("/")[1] || "png"), { type: t }) }; }
-        if (item.types.includes("text/plain")) { const tx = await (await item.getType("text/plain")).text(); if (tx.trim()) return { text: tx }; }
-      }
-    } catch (e) { if (e.name === "NotAllowedError") return { denied: true }; }
-  }
-  try { const tx = await navigator.clipboard.readText(); if (tx.trim()) return { text: tx }; } catch (e) { return { denied: true }; }
-  return {};
+function pasteZone(after, onFile, onText) {
+  // iPhone only hands over copied files (PDFs etc.) through a real Paste into the page, so offer a box to paste into
+  document.querySelectorAll(".pastezone").forEach(z => z.remove());
+  const z = document.createElement("div"); z.className = "pastezone"; z.contentEditable = "true"; z.setAttribute("inputmode", "none");
+  z.setAttribute("aria-label", "Paste here"); z.textContent = "Tap here, then tap Paste";
+  after.insertAdjacentElement("afterend", z);
+  const done = () => z.remove();
+  z.addEventListener("paste", e => {
+    e.preventDefault(); const dt = e.clipboardData;
+    const files = [...(dt.files || [])].length ? [...dt.files] : [...(dt.items || [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter(Boolean);
+    if (files.length) { done(); return onFile(files); }
+    const t = dt.getData("text/plain"); if (t && t.trim()) { done(); return onText(t); }
+    z.textContent = "Nothing usable was pasted. Copy the file or text again, then tap here and Paste.";
+  });
+  z.addEventListener("beforeinput", e => e.preventDefault());
+  z.addEventListener("focus", () => { z.textContent = ""; });
+  z.addEventListener("blur", () => { if (!z.textContent.trim()) z.textContent = "Tap here, then tap Paste"; });
+  z.focus(); z.scrollIntoView({ block: "center", behavior: "smooth" });
+  return z;
 }
 const fileToDataURL = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(f); });
 async function openOriginal(o) {
