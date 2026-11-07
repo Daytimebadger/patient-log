@@ -966,7 +966,6 @@ function renderEdit(id) {
     <div class="grid2">${field("mrn", "File no. (PMI)", p.mrn, 'class="mono" inputmode="numeric"')}${field("age", "Age", p.age || ageFrom(p.dob))}</div>
     <div class="grid2"><label class="f"><span>Gender</span><select id="sex" data-k="sex"><option value=""></option><option ${p.sex==="M"?"selected":""} value="M">Male</option><option ${p.sex==="F"?"selected":""} value="F">Female</option></select></label>${field("ward", "Ward / bed", p.ward)}</div>
     ${field("admitted", "Admitted", p.admitted, 'type="date"')}
-    ${p.stickerText ? `<details><summary>Text read from sticker</summary><div class="sticker">${esc(p.stickerText)}</div></details>` : ""}
   </section>
 
   <section class="sec" aria-labelledby="h-dx">
@@ -1061,7 +1060,7 @@ function renderEdit(id) {
       const nice = {name:"name", mrn:"PMI", age:"age", sex:"gender", dob:"DOB", ward:"ward", consultant:"consultant", address:"address", nhs:"NHS no."};
       const doubt = res.unsure.filter(k => ["name", "mrn", "age", "sex"].includes(k)).map(k => nice[k]);
       s2.className = !n ? "status err" : doubt.length ? "status warn" : "status ok";
-      s2.textContent = !n ? "Couldn't pick out any details. Try a sharper, closer photo, or type them in. The text that was read is below."
+      s2.textContent = !n ? "Couldn't pick out any details. Try a sharper, closer photo, or type them in."
         : doubt.length ? `Filled the details, but check the ${doubt.length > 1 ? doubt.slice(0, -1).join(", ") + " and " + doubt.at(-1) : doubt[0]} (marked in amber): the reader wasn't sure.${res.barcode ? "" : doubt.includes("PMI") ? " The barcode couldn't be read." : " The barcode couldn't be read, so check the PMI too."}`
         : `Filled ${["name","mrn","age","sex"].filter(k => got[k]).map(k => nice[k]).join(", ")}. Readings agreed${res.barcode ? " and the PMI came from the barcode" : ""}.`;
     } catch (err) {
