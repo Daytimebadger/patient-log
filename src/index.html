@@ -816,7 +816,7 @@ function renderOptions() {
   const drawMedList = () => {
     const list = medButtons();
     for (const c of ["essential", "supportive"]) {
-      const el = $("#o-list-" + c), items = list.map((m, i) => [m, i]).filter(([m]) => m.cat === c);
+      const el = $("#o-list-" + c), items = list.map((m, i) => [m, i]).filter(([m]) => m.cat === c).sort(([a], [b]) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
       el.innerHTML = items.map(([m, i]) => `<li><span>${esc(m.name)}</span><button class="ghost" data-move="${i}" aria-label="Move ${esc(m.name)} to ${c === "essential" ? "supportive" : "essential"}">${c === "essential" ? "↓ Supportive" : "↑ Essential"}</button><button class="ghost danger" data-del="${i}" aria-label="Delete ${esc(m.name)}">Delete</button></li>`).join("") || `<li><span class="hint">None yet.</span></li>`;
     }
     $("#o-medpanel").querySelectorAll("[data-del]").forEach(x => x.onclick = () => { saveMedButtons(list.filter((_, j) => j !== +x.dataset.del)); drawMedList(); });
@@ -1112,7 +1112,8 @@ function renderEdit(id) {
   const drawMeds = () => {
     const btns = medButtons(), names = btns.map(b => b.name);
     p.meds.forEach(m => { if (!names.includes(m.name)) names.push(m.name); }); // keep meds whose button was deleted
-    const order = [...names.filter(n => medCat(n) === "essential"), ...names.filter(n => medCat(n) === "supportive")];
+    const abc = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" });
+    const order = [...names.filter(n => medCat(n) === "essential").sort(abc), ...names.filter(n => medCat(n) === "supportive").sort(abc)];
     names.splice(0, names.length, ...order);
     $("#meds").innerHTML = names.length ? names.map((n, i) => {
       const m = p.meds.find(x => x.name === n);
