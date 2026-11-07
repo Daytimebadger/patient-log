@@ -1488,7 +1488,14 @@ function renderSummary(id) {
     <textarea id="hotext" aria-label="Handover text"></textarea>
     <div class="row"><button class="primary" id="hocopy">${icon("copy")}Copy handover</button><button class="ghost" id="hoclose">Close</button></div>
   </div>
-  <textarea id="copybox" class="mono" rows="10" style="margin-top:12px;font-size:13px" hidden aria-label="Summary text">${esc(summaryText(p))}</textarea>`;
+  <textarea id="copybox" class="mono" rows="10" style="margin-top:12px;font-size:13px" hidden aria-label="Summary text">${esc(summaryText(p))}</textarea>
+  ${isPast(p) ? "" : `<div class="row noprint" style="margin-top:22px;border-top:1px solid var(--line);padding-top:14px"><button class="ghost danger" id="dischargebtn">Discharge patient</button></div>`}`;
+  if ($("#dischargebtn")) $("#dischargebtn").onclick = async e => {
+    const b = e.currentTarget;
+    if (!b.dataset.sure) { b.dataset.sure = "1"; b.textContent = "Tap again to discharge"; setTimeout(() => { if (b.isConnected) { delete b.dataset.sure; b.textContent = "Discharge patient"; } }, 4000); return; }
+    p.dispo = "discharged"; p.dispoDate = todayISO(); await save(p);
+    toast(`${p.name || "Patient"} discharged and moved to Past`); go("");
+  };
   if ($("#reactivate")) $("#reactivate").onclick = async () => {
     p.history = [...(p.history || []), { dispo: p.dispo, note: p.dispoNote, date: p.dispoDate, ward: p.ward, admitted: p.admitted, diagnosis: p.diagnosis }];
     p.dispo = ""; p.dispoNote = ""; p.dispoDate = ""; p.admitted = new Date().toISOString().slice(0,10);
