@@ -974,10 +974,10 @@ function secSummary(k, p) {
   if (k === "dx") return p.diagnosis || p.comorbid ? `${esc(p.diagnosis || "Diagnosis not recorded")}<div style="color:var(--muted);font-size:14px;margin-top:2px">Comorbidities: ${esc(p.comorbid || "none")}</div>` : none("Not recorded");
   if (k === "tx") { const ms = patientMeds(p);
     return p.treatment || ms.length ? esc(p.treatment || "") + (ms.length ? `<ul>${ms.map(m => `<li>${esc(m.name)}${m.freq ? " <b>" + esc(m.freq) + "</b>" : ""} ${medCat(m.name) === "essential" ? `<span style="color:var(--muted)">· Day ${medDay(m)}</span>` : ""}</li>`).join("")}</ul>` : "") : none("Not recorded"); }
-  if (k === "ct") return (p.ct || []).length ? p.ct.map(c => `<div class="ctq"><div class="src">${esc(fmtDate(c.date))} · ${esc(c.title || "CT")}</div>${esc(c.conclusion || "No conclusion recorded")}</div>`).join("") : none("No CT reports");
-  if (k === "lab") return (p.labs || []).length ? p.labs.map(l => `<div class="ctq"><div class="src">${esc(fmtDate(l.date))}${l.title ? " · " + esc(l.title) : ""}</div>${esc(l.notes || "No summary yet")}</div>`).join("") : none("No lab results");
+  if (k === "ct") return (p.ct || []).length ? p.ct.map(c => `<div class="ctq"><div class="src">${[c.date ? esc(fmtDate(c.date)) : "", esc(c.title || "CT")].filter(Boolean).join(" · ")}</div>${esc(c.conclusion || "No conclusion recorded")}</div>`).join("") : none("No CT reports");
+  if (k === "lab") return (p.labs || []).length ? p.labs.map(l => `<div class="ctq"><div class="src">${[l.date ? esc(fmtDate(l.date)) : "", l.title ? esc(l.title) : ""].filter(Boolean).join(" · ") || "Labs"}</div>${esc(l.notes || "No summary yet")}</div>`).join("") : none("No lab results");
   if (k === "pl") return p.plan ? esc(p.plan) : none("Not recorded");
-  if (k === "dp") return p.dispo || p.dispoNote ? `${p.dispo ? `<b>${esc(DISPO[p.dispo] || p.dispo)}</b>${p.dispoDate ? " · " + esc(fmtDate(p.dispoDate)) : ""}` : ""}${p.dispoNote ? (p.dispo ? "\n" : "") + esc(p.dispoNote) : ""}` : none("None");
+  if (k === "dp") return p.dispo || p.dispoNote ? `${p.dispo ? `<b>${esc(DISPO[p.dispo] || p.dispo)}</b>` : ""}${p.dispoNote ? (p.dispo ? "\n" : "") + esc(p.dispoNote) : ""}` : none("None");
   if (k === "ph") return p.photos.length ? `<div class="tiny">${p.photos.map((ph, i) => `<button data-phv="${i}" aria-label="Open photo ${i+1}"><img src="${ph.src}" alt="${esc(ph.caption || "Clinical photo " + (i+1))}"></button>`).join("")}</div>` : none("No photos");
   return "";
 }
@@ -1204,9 +1204,7 @@ function renderPatient(id, openSec) {
       else { const img = await fileToImage(f); pages = [drawScaled(img, 2000).toDataURL("image/jpeg", 0.85)]; text = await ocrImage(prepForOcr(img), prog); }
       const r = findConclusion(text);
       const title = (text.match(/\b(CT[^\n]{0,60})/) || [])[1]?.replace(/\s+/g, " ").trim() || "CT";
-      const dm = text.match(/(?:Date of (?:exam|examination|scan|study)|Exam(?:ination)? date|Study date|Scan date)[\s:.]*(\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4})/i);
-      const dd = dm && parseDob(dm[1]);
-      p.ct.push({ id: uid(), file: f.name, title: title.slice(0, 70), date: dd ? dd.toISOString().slice(0,10) : new Date().toISOString().slice(0,10),
+      p.ct.push({ id: uid(), file: f.name, title: title.slice(0, 70), date: reportDate(text, "ct"),
         conclusion: r ? r.text : "", found: r ? r.label : "", raw: text.trim(), pages, files: [original] });
       await save(p); drawCT(); markSaved();
       st.className = r ? "status ok" : "status err";
@@ -1288,7 +1286,7 @@ function renderPatient(id, openSec) {
         else { const img = await fileToImage(f); pages.push(drawScaled(img, 2000).toDataURL("image/jpeg", 0.85)); text += await ocrImage(prepForOcr(img), prog, "6") + "\n"; }
       }
       const found = extractLabValues(text);
-      p.labs.push({ id: uid(), date: new Date().toISOString().slice(0,10), title: found.title, notes: found.notes, raw: text.trim(), pages, files: originals, file: files.map(f => f.name).join(", ") });
+      p.labs.push({ id: uid(), date: reportDate(text, "lab"), title: found.title, notes: found.notes, raw: text.trim(), pages, files: originals, file: files.map(f => f.name).join(", ") });
       await save(p); drawLabs(); markSaved();
       st.className = found.count ? "status ok" : "status err";
       st.textContent = (pages.length ? `Added ${pages.length} page${pages.length === 1 ? "" : "s"}. ` : "Added the pasted text. ") + (found.count ? `Picked out ${found.count} result${found.count === 1 ? "" : "s"}; check them against the report.` : "No key values were recognised; type them in from the report.");
@@ -1395,6 +1393,26 @@ function openViewer(pages, start = 0, text = "") {
   const esc_ = e => { if (e.key === "Escape") close(); };
   addEventListener("keydown", esc_); v.querySelector("#vclose").onclick = close; v.querySelector("#vclose").focus();
   const img = v.querySelector(`img[data-i="${start}"]`); if (img) setTimeout(() => img.scrollIntoView(), 50);
+}
+
+/* ---------- date the test was done, read from the report ---------- */
+const isoLocal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function reportDate(raw, kind) {
+  const D = "(\\d{4}-\\d{2}-\\d{2}|\\d{1,2}[\\/.\\-]\\d{1,2}[\\/.\\-]\\d{2,4}|\\d{1,2}[\\s\\-][A-Za-z]{3,9}[\\s\\-]\\d{4})";
+  const parse = t => { const d = parseDob(t.replace(/\s+/g, " ").trim()); if (!d || isNaN(d)) return null;
+    const ageDays = (Date.now() - d) / 864e5; return ageDays > -1 && ageDays < 730 ? d : null; }; // within the last two years, not a DOB
+  const labels = kind === "ct"
+    ? ["Date of (?:exam(?:ination)?|scan|study|procedure|service)", "Exam(?:ination)? date", "Study date", "Scan date", "Performed(?: on)?", "Date performed", "Exam date", "Visit date", "Date"]
+    : ["Collect(?:ed|ion)(?: date| time| date\\/time)?", "Date collected", "Specimen (?:date|taken|collected)", "Taken", "Sampled?", "Received(?: date)?", "Date received", "Registered", "Requested", "Date"];
+  for (const lb of labels) {
+    const m = raw.match(new RegExp("\\b(?:" + lb + ")\\b[^\\n\\d]{0,12}" + D, "i"));
+    if (m) { const d = parse(m[1]); if (d) return isoLocal(d); }
+  }
+  // no label: the date that appears most often in the report (within the last two years)
+  const tally = new Map();
+  for (const m of raw.matchAll(new RegExp(D, "g"))) { const d = parse(m[1]); if (d) { const k = isoLocal(d); tally.set(k, (tally.get(k) || 0) + 1); } }
+  const best = [...tally.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+  return best ? best[0] : "";
 }
 
 /* ---------- lab values (read on the device) ---------- */
@@ -1546,7 +1564,7 @@ function summaryText(p) {
   L.push("", "CT");
   if (p.ct.length) p.ct.forEach(c => L.push(`${fmtDate(c.date)} ${c.title || "CT"}: ${c.conclusion || "-"}`)); else L.push("-");
   if ((p.labs || []).length) { L.push("", "LABS"); p.labs.forEach(l => L.push(`${fmtDate(l.date)} ${l.title || "Labs"}${l.notes ? ": " + l.notes : ""}`)); }
-  if (p.dispo) L.push("", "DISPOSITION", DISPO[p.dispo] + (p.dispoNote ? ": " + p.dispoNote : "") + (p.dispoDate ? " (" + fmtDate(p.dispoDate) + ")" : ""));
+  if (p.dispo) L.push("", "DISPOSITION", DISPO[p.dispo] + (p.dispoNote ? ": " + p.dispoNote : ""));
   return L.join("\n");
 }
 
