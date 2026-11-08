@@ -1069,15 +1069,18 @@ function renderEdit(id) {
         <label class="f"><span>Date</span><input data-ck="date" type="date" value="${esc(c.date)}"></label></div>
       ${c.found ? `<span class="ct-found">Copied from the “${esc(c.found)}” section of ${esc(c.file || "the report")}</span>` : (c.raw && !c.conclusion ? `<span class="status err">No conclusion heading found in ${esc(c.file || "the report")}. Copy the relevant part from the report text below.</span>` : "")}
       <label class="f"><span>Conclusion</span><textarea data-ck="conclusion" rows="4">${esc(c.conclusion)}</textarea></label>
+      ${(c.pages || []).length ? `<div class="thumbs">${c.pages.map((src, j) => `<button class="thumb tap" data-pg="${j}" aria-label="Open page ${j+1}" style="padding:0"><img src="${src}" alt="CT report page ${j+1}"></button>`).join("")}</div>` : ""}
       ${c.raw !== undefined ? `<details ${c.pasting ? "open" : ""}><summary>${c.pasting ? "Paste the full report here" : "Full report text"}</summary>
         <textarea data-ck="raw" rows="8" class="mono" style="font-size:13px;margin-top:6px">${esc(c.raw)}</textarea>
         <button style="margin-top:8px" data-act="refind">Find conclusion again</button></details>` : ""}
-      <div class="row"><button class="ghost danger" data-act="rm">Remove report</button></div>
+      <div class="row">${origButtons(c, "data-orig")}<button class="ghost danger" data-act="rm">Remove report</button></div>
     </div>`).join("") : "";
     $("#ctlist").querySelectorAll(".ct").forEach(box => {
       const c = p.ct[+box.dataset.i];
       box.querySelectorAll("[data-ck]").forEach(el => el.addEventListener("input", () => { c[el.dataset.ck] = el.value; autosave(); }));
       box.querySelector('[data-act="rm"]').onclick = () => { p.ct.splice(+box.dataset.i, 1); autosave(); drawCT(); };
+      box.querySelectorAll("[data-pg]").forEach(b => b.onclick = () => openViewer(c.pages, +b.dataset.pg));
+      box.querySelectorAll("[data-orig]").forEach(b => b.onclick = () => openOriginal(c.files[+b.dataset.orig]));
       const rf = box.querySelector('[data-act="refind"]');
       if (rf) rf.onclick = () => { const r = findConclusion(c.raw || ""); c.pasting = false;
         if (r) { c.conclusion = r.text; c.found = r.label; } else { c.found = ""; } autosave(); drawCT(); };
@@ -1092,16 +1095,18 @@ function renderEdit(id) {
     const prog = (s, v) => { st.className = "status"; st.innerHTML = `${esc(s)}… <span class="bar-p"><i style="width:${Math.round(v*100)}%"></i></span>`; };
     try {
       prog("Opening report", 0);
-      let text;
-      if (/pdf$/i.test(f.type) || /\.pdf$/i.test(f.name)) text = await pdfText(f, prog);
-      else if (/^text\//.test(f.type) || /\.txt$/i.test(f.name)) text = await f.text();
-      else text = await ocrImage(prepForOcr(await fileToImage(f)), prog);
+      let text, pages = [];
+      const isPdf = /pdf$/i.test(f.type) || /\.pdf$/i.test(f.name), isText = /^text\//.test(f.type) || /\.txt$/i.test(f.name);
+      const original = { name: f.name, type: f.type || (isPdf ? "application/pdf" : isText ? "text/plain" : "image/jpeg"), data: await fileToDataURL(f) };
+      if (isPdf) { text = await pdfText(f, prog); pages = await pdfPages(f, 12); }
+      else if (isText) text = await f.text();
+      else { const img = await fileToImage(f); pages = [drawScaled(img, 2000).toDataURL("image/jpeg", 0.85)]; text = await ocrImage(prepForOcr(img), prog); }
       const r = findConclusion(text);
       const title = (text.match(/\b(CT[^\n]{0,60})/) || [])[1]?.replace(/\s+/g, " ").trim() || "CT";
       const dm = text.match(/(?:Date of (?:exam|examination|scan|study)|Exam(?:ination)? date|Study date|Scan date)[\s:.]*(\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4})/i);
       const dd = dm && parseDob(dm[1]);
       p.ct.push({ id: uid(), file: f.name, title: title.slice(0, 70), date: dd ? dd.toISOString().slice(0,10) : new Date().toISOString().slice(0,10),
-        conclusion: r ? r.text : "", found: r ? r.label : "", raw: text.trim() });
+        conclusion: r ? r.text : "", found: r ? r.label : "", raw: text.trim(), pages, files: [original] });
       await save(p); drawCT(); markSaved();
       st.className = r ? "status ok" : "status err";
       st.textContent = r ? `Found the ${r.label} and copied it in.` : "Report read, but no Conclusion, Impression or Comment heading was found.";
@@ -1157,9 +1162,9 @@ function renderEdit(id) {
   const drawLabs = () => {
     $("#lablist").innerHTML = p.labs.map((l, i) => `<div class="ct" data-i="${i}">
       <div class="grid32">
-        <label class="f"><span>Results</span><input data-lk="title" value="${esc(l.title)}" placeholder="e.g. FBC, U&amp;E, CRP"></label>
+        <label class="f"><span>Results</span><input data-lk="title" value="${esc(l.title)}"></label>
         <label class="f"><span>Date</span><input data-lk="date" type="date" value="${esc(l.date)}"></label></div>
-      <label class="f"><span>Summary</span><textarea data-lk="notes" rows="${Math.min(10, Math.max(3, Math.ceil((l.notes || "").length / 32) + 1))}" placeholder="Bloods: Na 135, K 5.0, Urea 11&#10;Micro: Culture: Staphylococcus aureus (S: cloxacillin; R: penicillin)">${esc(l.notes)}</textarea></label>
+      <label class="f"><span>Summary</span><textarea data-lk="notes" rows="${Math.min(10, Math.max(3, Math.ceil((l.notes || "").length / 32) + 1))}">${esc(l.notes)}</textarea></label>
       <div class="thumbs">${l.pages.map((src, j) => `<button class="thumb tap" data-pg="${j}" aria-label="Open page ${j+1}" style="padding:0"><img src="${src}" alt="Lab results page ${j+1}"></button>`).join("")}</div>
       <div class="row">${origButtons(l, "data-orig")}<button class="ghost danger" data-act="rm">Remove results</button></div></div>`).join("");
     $("#lablist").querySelectorAll(".ct").forEach(box => {
@@ -1469,7 +1474,7 @@ function renderSummary(id) {
     <div class="sheet-b">
       <section class="blk"><h2>Diagnosis</h2><div class="v${p.diagnosis ? "" : " none"}">${esc(p.diagnosis || "Not recorded")}<div style="color:var(--muted);font-size:14px;margin-top:4px">Comorbidities: ${esc(p.comorbid || "none")}</div></div></section>
       <section class="blk"><h2>Treatment</h2><div class="v${p.treatment || (p.meds||[]).length ? "" : " none"}">${p.treatment || (p.meds||[]).length ? esc(p.treatment) + ((p.meds||[]).length ? `<ul style="margin:${p.treatment ? "8px" : "0"} 0 0;padding-left:20px;white-space:normal">${patientMeds(p).map(m => `<li>${esc(m.name)}${m.freq ? " <b>" + esc(m.freq) + "</b>" : ""} <span style="color:var(--muted)">· Day ${medDay(m)}</span></li>`).join("")}</ul>` : "") : "Not recorded"}</div></section>
-      <section class="blk"><h2>CT</h2><div class="v${p.ct.length ? "" : " none"}">${p.ct.length ? p.ct.map(c => `<blockquote class="ctq"><div class="src">${esc(fmtDate(c.date))} · ${esc(c.title || "CT")}</div>${esc(c.conclusion || "No conclusion recorded")}</blockquote>`).join("") : "No CT reports"}</div></section>
+      <section class="blk"><h2>CT</h2><div class="v${p.ct.length ? "" : " none"}">${p.ct.length ? p.ct.map((c, ci) => `<blockquote class="ctq"><div class="src">${esc(fmtDate(c.date))} · ${esc(c.title || "CT")}</div>${esc(c.conclusion || "No conclusion recorded")}${(c.pages || []).length ? `<div class="thumbs" style="margin-top:6px;white-space:normal">${c.pages.map((src, j) => `<button class="thumb tap" data-ctv="${ci}" data-pg="${j}" style="padding:0" aria-label="Open CT page ${j+1}"><img src="${src}" alt="CT report page ${j+1}"></button>`).join("")}</div>` : ""}${(c.files || []).length ? `<div class="row noprint" style="margin-top:6px">${origButtons(c, `data-ctf="${ci}" data-f`)}</div>` : ""}</blockquote>`).join("") : "No CT reports"}</div></section>
       <section class="blk"><h2>Labs</h2>${(p.labs||[]).length ? `<div class="v">${p.labs.map((l, li) => `<div class="ctq"><div class="src">${esc(fmtDate(l.date))}${l.title ? " · " + esc(l.title) : ""}</div>${l.notes ? `<div style="white-space:pre-line">${esc(l.notes)}</div>` : ""}<div class="thumbs" style="margin-top:6px;white-space:normal">${l.pages.map((src, j) => `<button class="thumb tap" data-lab="${li}" data-pg="${j}" style="padding:0" aria-label="Open lab page ${j+1}"><img src="${src}" alt="Lab results page ${j+1}"></button>`).join("")}</div>${(l.files || []).length ? `<div class="row noprint" style="margin-top:6px">${origButtons(l, `data-labf="${li}" data-f`)}</div>` : ""}</div>`).join("")}</div>` : `<div class="v none">No lab results</div>`}</section>
       <section class="blk"><h2>Plan</h2>${v(p.plan)}</section>
       ${p.dispo ? `<section class="blk"><h2>Disposition</h2><div class="v"><b>${esc(DISPO[p.dispo])}</b>${p.dispoDate ? " · " + esc(fmtDate(p.dispoDate)) : ""}${p.dispoNote ? "\n" + esc(p.dispoNote) : ""}</div></section>` : ""}
@@ -1501,6 +1506,8 @@ function renderSummary(id) {
     p.dispo = ""; p.dispoNote = ""; p.dispoDate = ""; p.admitted = new Date().toISOString().slice(0,10);
     await save(p); toast("Back on the active list. Update the ward and admission details."); go("edit-" + p.id);
   };
+  $("#app").querySelectorAll("[data-ctv]").forEach(b => b.onclick = () => openViewer(p.ct[+b.dataset.ctv].pages, +b.dataset.pg));
+  $("#app").querySelectorAll("[data-ctf]").forEach(b => b.onclick = () => openOriginal(p.ct[+b.dataset.ctf].files[+b.dataset.f]));
   $("#app").querySelectorAll("[data-lab]").forEach(b => b.onclick = () => openViewer(p.labs[+b.dataset.lab].pages, +b.dataset.pg));
   $("#app").querySelectorAll("[data-labf]").forEach(b => b.onclick = () => openOriginal(p.labs[+b.dataset.labf].files[+b.dataset.f]));
   $("#hobtn").onclick = () => { $("#hotext").value = handover(p); $("#ho").hidden = false; $("#ho").scrollIntoView({behavior: "smooth", block: "start"}); };
