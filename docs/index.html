@@ -153,6 +153,11 @@ details summary{cursor:pointer;font-size:14px;color:var(--muted);font-weight:700
 .blk:last-child{border-bottom:0}
 @media (max-width:520px){.blk{grid-template-columns:1fr;gap:4px}}
 .blk h2{padding-top:2px}
+.blkh{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+@media (min-width:521px){.blkh{flex-direction:column;justify-content:flex-start}}
+.secedit{all:unset;cursor:pointer;font-size:13px;font-weight:700;color:var(--accent);padding:2px 8px;border:1px solid var(--line);border-radius:999px;line-height:1.6}
+.secedit:hover{border-color:var(--accent)}
+@media print{.secedit{display:none}}
 .blk .v{white-space:pre-wrap;overflow-wrap:anywhere;min-width:0}
 .blk .v.none{color:var(--muted);font-style:italic}
 .ctq{border-left:3px solid var(--accent);padding-left:12px;margin:0 0 10px}
@@ -725,7 +730,7 @@ async function save(p) {
 function route() {
   const h = location.hash.slice(1);
   let m;
-  if ((m = h.match(/^edit-([a-z0-9]+)$/))) return renderEdit(m[1]);
+  if ((m = h.match(/^edit-([a-z0-9]+)(?:-(det|dx|tx|ct|lab|dp|ph))?$/))) return renderEdit(m[1], m[2]);
   if ((m = h.match(/^summary-([a-z0-9]+)$/))) return renderSummary(m[1]);
   if (h === "past") return renderList(true);
   if (h === "options") return renderOptions();
@@ -947,13 +952,17 @@ async function importBackup(e) {
 function field(id, label, value, attrs = "") {
   return `<label class="f"><span>${label}</span><input id="${id}" data-k="${id}" value="${esc(value)}" ${attrs}></label>`;
 }
-function renderEdit(id) {
+const SEC_NAMES = { det: "Patient details", dx: "Diagnosis", tx: "Treatment and plan", ct: "CT reports", lab: "Lab results", dp: "Disposition", ph: "Photos" };
+function renderEdit(id, sec) {
   const p = patients.find(x => x.id === id); if (!p) return go("");
-  $("#topbar").innerHTML = `<button class="ghost" id="back" aria-label="Back to patient list">${icon("back")}</button>
+  $("#topbar").innerHTML = sec
+    ? `<button class="ghost" id="back" aria-label="Back to summary">${icon("back")}</button><p class="brand">${esc(SEC_NAMES[sec])}</p><span></span>`
+    : `<button class="ghost" id="back" aria-label="Back to patient list">${icon("back")}</button>
     <p class="brand">${esc(p.name || "New patient")}</p>
     <button id="tosum">${icon("sheet")}Summary</button>`;
-  const openedPast = isPast(p); $("#back").onclick = () => go(openedPast && isPast(p) ? "past" : "");
-  $("#tosum").onclick = () => go("summary-" + p.id);
+  const openedPast = isPast(p);
+  $("#back").onclick = sec ? async () => { clearTimeout(t); await save(p); go("summary-" + p.id); } : () => go(openedPast && isPast(p) ? "past" : "");
+  if ($("#tosum")) $("#tosum").onclick = () => go("summary-" + p.id);
 
   $("#app").innerHTML = `
   <section class="sec" aria-labelledby="h-det">
@@ -1019,11 +1028,15 @@ function renderEdit(id) {
   <div id="delzone" style="margin-top:20px"><button class="ghost danger" id="del">Delete this patient</button></div>
 
   <div class="actions"><span class="saved" id="saved">${p.updated ? "Saved " + fmtDateTime(p.updated) : ""}</span>
-    <button class="primary" id="done">${icon("sheet")}View summary</button></div>`;
+    <button class="primary" id="done">${sec ? "Save" : icon("sheet") + "View summary"}</button></div>`;
+  if (sec) { // show just the section being edited
+    $("#app").querySelectorAll("section.sec").forEach(x => { if (x.getAttribute("aria-labelledby") !== "h-" + sec) x.hidden = true; });
+    if (sec !== "det") $("#delzone").hidden = true;
+  }
 
   let t;
-  const markSaved = () => { $("#saved").textContent = "Saved " + fmtDateTime(p.updated); };
-  const autosave = () => { clearTimeout(t); $("#saved").textContent = "Saving…"; t = setTimeout(async () => { await save(p); markSaved(); $(".brand").textContent = p.name || "New patient"; }, 400); };
+  const markSaved = () => { const el = $("#saved"); if (el) el.textContent = "Saved " + fmtDateTime(p.updated); };
+  const autosave = () => { clearTimeout(t); $("#saved").textContent = "Saving…"; t = setTimeout(async () => { await save(p); if (!$("#saved")) return; markSaved(); if (!sec) $(".brand").textContent = p.name || "New patient"; }, 400); };
   $("#app").querySelectorAll("[data-k]").forEach(el => el.addEventListener("input", () => { p[el.dataset.k] = el.value;
     if (p.unsure && p.unsure.includes(el.dataset.k)) { p.unsure = p.unsure.filter(k => k !== el.dataset.k); el.classList.remove("unsure"); }
     autosave(); }));
@@ -1039,7 +1052,7 @@ function renderEdit(id) {
   $("#del").onclick = () => {
     $("#delzone").innerHTML = `<div class="confirm">Delete ${esc(p.name || "this patient")} and all their data from this device?
       <button class="danger" id="delyes">Delete</button><button id="delno">Keep</button></div>`;
-    $("#delno").onclick = () => renderEdit(id);
+    $("#delno").onclick = () => renderEdit(id, sec);
     $("#delyes").onclick = async () => { await store.del(p.id); lsSet("wpl-deleted-since", String((+lsGet("wpl-deleted-since") || 0) + 1)); patients = patients.filter(x => x.id !== p.id); toast("Patient deleted"); go(""); };
   };
 
@@ -1055,7 +1068,7 @@ function renderEdit(id) {
       const res = await readSticker(img, prog), got = res.got;
       p.stickerText = res.text;
       Object.assign(p, got); p.unsure = res.unsure; await save(p);
-      renderEdit(id);
+      renderEdit(id, sec);
       const n = Object.keys(got).length, s2 = $("#stk-st");
       const nice = {name:"name", mrn:"PMI", age:"age", sex:"gender", dob:"DOB", ward:"ward", consultant:"consultant", address:"address", nhs:"NHS no."};
       const doubt = res.unsure.filter(k => ["name", "mrn", "age", "sex"].includes(k)).map(k => nice[k]);
@@ -1461,16 +1474,14 @@ function summaryText(p) {
 function renderSummary(id) {
   const p = patients.find(x => x.id === id); if (!p) return go("");
   $("#topbar").innerHTML = `<button class="ghost" id="back" aria-label="Back to patient list">${icon("back")}</button>
-    <p class="brand">Summary</p>
-    <button id="toedit">${icon("edit")}Edit</button>`;
+    <p class="brand">Summary</p><span></span>`;
   $("#back").onclick = () => go(isPast(p) ? "past" : "");
-  $("#toedit").onclick = () => go("edit-" + p.id);
   const v = (s) => s ? `<div class="v">${esc(s)}</div>` : `<div class="v none">Not recorded</div>`;
   $("#app").innerHTML = `
   <article class="sheet">
     <div class="sheet-h">
       <h1>${esc(p.name || "Unnamed patient")}</h1>
-      ${p.dispo ? `<span class="pill d-${p.dispo}">${esc(DISPO[p.dispo])}</span>` : "<span></span>"}
+      <div style="display:flex;gap:8px;align-items:flex-start">${p.dispo ? `<span class="pill d-${p.dispo}">${esc(DISPO[p.dispo])}</span>` : ""}<button class="secedit" data-sec="det" aria-label="Edit patient details">Edit</button></div>
       <dl class="ids">
         <div><dt>PMI</dt><dd class="mono">${esc(p.mrn || "–")}</dd></div>
         <div><dt>Age</dt><dd class="mono">${esc(ageOf(p) || "–")}${p.sex ? ` · ${esc(p.sex)}` : ""}</dd></div>
@@ -1481,13 +1492,13 @@ function renderSummary(id) {
       </dl>
     </div>
     <div class="sheet-b">
-      <section class="blk"><h2>Diagnosis</h2><div class="v${p.diagnosis ? "" : " none"}">${esc(p.diagnosis || "Not recorded")}<div style="color:var(--muted);font-size:14px;margin-top:4px">Comorbidities: ${esc(p.comorbid || "none")}</div></div></section>
-      <section class="blk"><h2>Treatment</h2><div class="v${p.treatment || (p.meds||[]).length ? "" : " none"}">${p.treatment || (p.meds||[]).length ? esc(p.treatment) + ((p.meds||[]).length ? `<ul style="margin:${p.treatment ? "8px" : "0"} 0 0;padding-left:20px;white-space:normal">${patientMeds(p).map(m => `<li>${esc(m.name)}${m.freq ? " <b>" + esc(m.freq) + "</b>" : ""} <span style="color:var(--muted)">· Day ${medDay(m)}</span></li>`).join("")}</ul>` : "") : "Not recorded"}</div></section>
-      <section class="blk"><h2>CT</h2><div class="v${p.ct.length ? "" : " none"}">${p.ct.length ? p.ct.map((c, ci) => `<blockquote class="ctq"><div class="src">${esc(fmtDate(c.date))} · ${esc(c.title || "CT")}</div>${esc(c.conclusion || "No conclusion recorded")}${(c.pages || []).length ? `<div class="thumbs" style="margin-top:6px;white-space:normal">${c.pages.map((src, j) => `<button class="thumb tap" data-ctv="${ci}" data-pg="${j}" style="padding:0" aria-label="Open CT page ${j+1}"><img src="${src}" alt="CT report page ${j+1}"></button>`).join("")}</div>` : ""}${(c.files || []).length ? `<div class="row noprint" style="margin-top:6px">${origButtons(c, `data-ctf="${ci}" data-f`)}</div>` : ""}</blockquote>`).join("") : "No CT reports"}</div></section>
-      <section class="blk"><h2>Labs</h2>${(p.labs||[]).length ? `<div class="v">${p.labs.map((l, li) => `<div class="ctq"><div class="src">${esc(fmtDate(l.date))}${l.title ? " · " + esc(l.title) : ""}</div>${l.notes ? `<div style="white-space:pre-line">${esc(l.notes)}</div>` : ""}<div class="thumbs" style="margin-top:6px;white-space:normal">${l.pages.map((src, j) => `<button class="thumb tap" data-lab="${li}" data-pg="${j}" style="padding:0" aria-label="Open lab page ${j+1}"><img src="${src}" alt="Lab results page ${j+1}"></button>`).join("")}</div>${(l.files || []).length ? `<div class="row noprint" style="margin-top:6px">${origButtons(l, `data-labf="${li}" data-f`)}</div>` : ""}</div>`).join("")}</div>` : `<div class="v none">No lab results</div>`}</section>
-      <section class="blk"><h2>Plan</h2>${v(p.plan)}</section>
-      ${p.dispo ? `<section class="blk"><h2>Disposition</h2><div class="v"><b>${esc(DISPO[p.dispo])}</b>${p.dispoDate ? " · " + esc(fmtDate(p.dispoDate)) : ""}${p.dispoNote ? "\n" + esc(p.dispoNote) : ""}</div></section>` : ""}
-      ${p.photos.length ? `<section class="blk"><h2>Photos</h2><div class="thumbs">${p.photos.map((ph, i) => `<figure><div class="thumb"><img src="${ph.src}" alt="${esc(ph.caption || "Clinical photo " + (i+1))}"></div>${ph.caption ? `<figcaption>${esc(ph.caption)}</figcaption>` : ""}</figure>`).join("")}</div></section>` : ""}
+      <section class="blk"><div class="blkh"><h2>Diagnosis</h2><button class="secedit" data-sec="dx" aria-label="Edit diagnosis">Edit</button></div><div class="v${p.diagnosis ? "" : " none"}">${esc(p.diagnosis || "Not recorded")}<div style="color:var(--muted);font-size:14px;margin-top:4px">Comorbidities: ${esc(p.comorbid || "none")}</div></div></section>
+      <section class="blk"><div class="blkh"><h2>Treatment</h2><button class="secedit" data-sec="tx" aria-label="Edit treatment">Edit</button></div><div class="v${p.treatment || (p.meds||[]).length ? "" : " none"}">${p.treatment || (p.meds||[]).length ? esc(p.treatment) + ((p.meds||[]).length ? `<ul style="margin:${p.treatment ? "8px" : "0"} 0 0;padding-left:20px;white-space:normal">${patientMeds(p).map(m => `<li>${esc(m.name)}${m.freq ? " <b>" + esc(m.freq) + "</b>" : ""} <span style="color:var(--muted)">· Day ${medDay(m)}</span></li>`).join("")}</ul>` : "") : "Not recorded"}</div></section>
+      <section class="blk"><div class="blkh"><h2>CT</h2><button class="secedit" data-sec="ct" aria-label="Edit CT reports">Edit</button></div><div class="v${p.ct.length ? "" : " none"}">${p.ct.length ? p.ct.map((c, ci) => `<blockquote class="ctq"><div class="src">${esc(fmtDate(c.date))} · ${esc(c.title || "CT")}</div>${esc(c.conclusion || "No conclusion recorded")}${(c.pages || []).length ? `<div class="thumbs" style="margin-top:6px;white-space:normal">${c.pages.map((src, j) => `<button class="thumb tap" data-ctv="${ci}" data-pg="${j}" style="padding:0" aria-label="Open CT page ${j+1}"><img src="${src}" alt="CT report page ${j+1}"></button>`).join("")}</div>` : ""}${(c.files || []).length ? `<div class="row noprint" style="margin-top:6px">${origButtons(c, `data-ctf="${ci}" data-f`)}</div>` : ""}</blockquote>`).join("") : "No CT reports"}</div></section>
+      <section class="blk"><div class="blkh"><h2>Labs</h2><button class="secedit" data-sec="lab" aria-label="Edit lab results">Edit</button></div>${(p.labs||[]).length ? `<div class="v">${p.labs.map((l, li) => `<div class="ctq"><div class="src">${esc(fmtDate(l.date))}${l.title ? " · " + esc(l.title) : ""}</div>${l.notes ? `<div style="white-space:pre-line">${esc(l.notes)}</div>` : ""}<div class="thumbs" style="margin-top:6px;white-space:normal">${l.pages.map((src, j) => `<button class="thumb tap" data-lab="${li}" data-pg="${j}" style="padding:0" aria-label="Open lab page ${j+1}"><img src="${src}" alt="Lab results page ${j+1}"></button>`).join("")}</div>${(l.files || []).length ? `<div class="row noprint" style="margin-top:6px">${origButtons(l, `data-labf="${li}" data-f`)}</div>` : ""}</div>`).join("")}</div>` : `<div class="v none">No lab results</div>`}</section>
+      <section class="blk"><div class="blkh"><h2>Plan</h2><button class="secedit" data-sec="tx" aria-label="Edit plan">Edit</button></div>${v(p.plan)}</section>
+      <section class="blk"><div class="blkh"><h2>Disposition</h2><button class="secedit" data-sec="dp" aria-label="Edit disposition">Edit</button></div>${p.dispo ? `<div class="v"><b>${esc(DISPO[p.dispo])}</b>${p.dispoDate ? " · " + esc(fmtDate(p.dispoDate)) : ""}${p.dispoNote ? "\n" + esc(p.dispoNote) : ""}</div>` : `<div class="v none">None</div>`}</section>
+      <section class="blk"><div class="blkh"><h2>Photos</h2><button class="secedit" data-sec="ph" aria-label="Edit photos">Edit</button></div>${p.photos.length ? `<div class="thumbs">${p.photos.map((ph, i) => `<figure><div class="thumb"><img src="${ph.src}" alt="${esc(ph.caption || "Clinical photo " + (i+1))}"></div>${ph.caption ? `<figcaption>${esc(ph.caption)}</figcaption>` : ""}</figure>`).join("")}</div>` : `<div class="v none">No photos</div>`}</section>
     </div>
     ${(p.history || []).length ? `<section class="blk" style="border-top:1px solid var(--line)"><h2>Previous admissions</h2><div class="v">${p.history.map(h => `<div class="ctq"><div class="src">${esc(fmtDate(h.admitted))} to ${esc(fmtDate(h.date) || "?")} · ${esc(DISPO[h.dispo] || "")}${h.ward ? " · " + esc(h.ward) : ""}</div>${esc(h.diagnosis || "")}${h.note ? "\n" + esc(h.note) : ""}</div>`).join("")}</div></section>` : ""}
     <div class="foot">Last updated ${esc(fmtDateTime(p.updated))}${p.example ? " · This is a made-up example record" : ""}</div>
@@ -1515,6 +1526,7 @@ function renderSummary(id) {
     p.dispo = ""; p.dispoNote = ""; p.dispoDate = ""; p.admitted = new Date().toISOString().slice(0,10);
     await save(p); toast("Back on the active list. Update the ward and admission details."); go("edit-" + p.id);
   };
+  $("#app").querySelectorAll(".secedit").forEach(b => b.onclick = () => go("edit-" + p.id + "-" + b.dataset.sec));
   $("#app").querySelectorAll("[data-ctv]").forEach(b => b.onclick = () => openViewer(p.ct[+b.dataset.ctv].pages, +b.dataset.pg));
   $("#app").querySelectorAll("[data-ctf]").forEach(b => b.onclick = () => openOriginal(p.ct[+b.dataset.ctf].files[+b.dataset.f]));
   $("#app").querySelectorAll("[data-lab]").forEach(b => b.onclick = () => openViewer(p.labs[+b.dataset.lab].pages, +b.dataset.pg));
