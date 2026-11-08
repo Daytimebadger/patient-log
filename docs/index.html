@@ -153,6 +153,14 @@ details summary{cursor:pointer;font-size:14px;color:var(--muted);font-weight:700
 .blk:last-child{border-bottom:0}
 @media (max-width:520px){.blk{grid-template-columns:1fr;gap:4px}}
 .blk h2{padding-top:2px}
+.cs,.ho{scroll-margin-top:calc(78px + env(safe-area-inset-top,0px))}
+.tiny{display:flex;flex-wrap:wrap;gap:6px}
+.tiny button{all:unset;cursor:pointer;width:44px;height:44px;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+.tiny img{width:100%;height:100%;object-fit:cover;display:block}
+.phpick{position:relative;display:block;width:72px;height:72px;border-radius:8px;overflow:hidden;border:2px solid var(--line);cursor:pointer}
+.phpick img{width:100%;height:100%;object-fit:cover;display:block}
+.phpick input{position:absolute;top:4px;left:4px;width:20px;height:20px;margin:0}
+.phpick:has(input:checked){border-color:var(--accent)}
 .cs-h{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%}
 .cs-h::after{content:"";flex:none;width:9px;height:9px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg) translate(-2px,-2px);transition:transform .15s}
 .cs.open>.cs-h::after{transform:rotate(-135deg)}
@@ -825,7 +833,7 @@ function renderOptions() {
         <div class="opanel" id="o-medpanel" hidden>
           ${["essential", "supportive"].map(c => `<div class="medcat">${c === "essential" ? "Essential (included in handovers)" : "Supportive (not in handovers)"}</div>
           <ul class="medlist" id="o-list-${c}"></ul>
-          <div class="row"><input id="o-new-${c}" class="grow" placeholder="${c === "essential" ? "e.g. Ceftriaxone 1g IV" : "e.g. Paracetamol 1g PO"}" aria-label="New ${c} medicine"><button data-add="${c}">${icon("plus")}Add</button></div>`).join("")}
+          <div class="row"><input id="o-new-${c}" class="grow" aria-label="New ${c} medicine"><button data-add="${c}">${icon("plus")}Add</button></div>`).join("")}
         </div></li>
       <li><button class="orow" id="o-pw">${icon("lock")}<span class="grow">Backup password<small>${backupPassword() ? "On: backups are encrypted" : "Off: backups are not encrypted"}</small></span>${icon("chev")}</button></li>
       <li><div class="orow">${icon("sheet")}<span class="grow">Main ward<small>Patients in this ward are inpatients; any other ward is an outlier</small></span>
@@ -979,7 +987,7 @@ function secSummary(k, p) {
   if (k === "lab") return (p.labs || []).length ? p.labs.map(l => `<div class="ctq"><div class="src">${esc(fmtDate(l.date))}${l.title ? " · " + esc(l.title) : ""}</div>${esc(l.notes || "No summary yet")}</div>`).join("") : none("No lab results");
   if (k === "pl") return p.plan ? esc(p.plan) : none("Not recorded");
   if (k === "dp") return p.dispo || p.dispoNote ? `${p.dispo ? `<b>${esc(DISPO[p.dispo] || p.dispo)}</b>${p.dispoDate ? " · " + esc(fmtDate(p.dispoDate)) : ""}` : ""}${p.dispoNote ? (p.dispo ? "\n" : "") + esc(p.dispoNote) : ""}` : none("None");
-  if (k === "ph") return p.photos.length ? `<div class="thumbs" style="white-space:normal">${p.photos.map((ph, i) => `<button class="thumb tap" data-phv="${i}" style="padding:0" aria-label="Open photo ${i+1}"><img src="${ph.src}" alt="${esc(ph.caption || "Clinical photo " + (i+1))}"></button>`).join("")}</div>` : none("No photos");
+  if (k === "ph") return p.photos.length ? `<div class="tiny">${p.photos.map((ph, i) => `<button data-phv="${i}" aria-label="Open photo ${i+1}"><img src="${ph.src}" alt="${esc(ph.caption || "Clinical photo " + (i+1))}"></button>`).join("")}</div>` : none("No photos");
   return "";
 }
 function detHead(p) {
@@ -1015,10 +1023,10 @@ function renderPatient(id, openSec) {
     <div id="delzone"><button class="ghost danger" id="del">Delete this patient</button></div>`,
     `<label class="btn primary filebtn">${icon("cam")}Sticker<input type="file" id="stk" accept="image/*"></label>`)
   + S("dx", "Diagnosis", `
-    <textarea id="diagnosis" data-k="diagnosis" placeholder="e.g. Left eye bacterial keratitis" aria-labelledby="h-dx">${esc(p.diagnosis)}</textarea>
-    ${field("comorbid", "Comorbidities", p.comorbid, 'placeholder="Leave blank if none, e.g. HIV on ART, T2DM"')}`)
+    <textarea id="diagnosis" data-k="diagnosis" aria-labelledby="h-dx">${esc(p.diagnosis)}</textarea>
+    ${field("comorbid", "Comorbidities", p.comorbid)}`)
   + S("tx", "Treatment", `
-    <textarea id="treatment" data-k="treatment" placeholder="Management so far" aria-labelledby="h-tx">${esc(p.treatment)}</textarea>
+    <textarea id="treatment" data-k="treatment" aria-labelledby="h-tx">${esc(p.treatment)}</textarea>
     <div class="medbox open" id="medbox">
       <p class="hint medhint" style="margin:0 0 8px"><b>Meds</b>: tap a name to start or stop it, then pick how often.</p>
       <div class="meds" id="meds"></div></div>`)
@@ -1054,7 +1062,8 @@ function renderPatient(id, openSec) {
   <div class="ho" id="ho" hidden>
     <div class="sec-h"><h2>Handover</h2><span class="hint">Edit before sending if needed</span></div>
     <textarea id="hotext" aria-label="Handover text"></textarea>
-    <div class="row"><button class="primary" id="hocopy">${icon("copy")}Copy handover</button><button class="ghost" id="hoclose">Close</button></div>
+    <div id="hophwrap"></div>
+    <div class="row"><button class="primary" id="hoshare">${icon("copy")}Share</button><button id="hocopy">Copy text</button><button class="ghost" id="hoclose">Close</button></div>
   </div>
   <textarea id="copybox" class="mono" rows="10" style="margin-top:12px;font-size:13px" hidden aria-label="Summary text"></textarea>
   ${isPast(p) ? "" : `<div class="row noprint" style="margin-top:22px;border-top:1px solid var(--line);padding-top:14px"><button class="ghost danger" id="dischargebtn">Discharge patient</button></div>`}
@@ -1085,8 +1094,23 @@ function renderPatient(id, openSec) {
     p.dispo = ""; p.dispoNote = ""; p.dispoDate = ""; p.admitted = new Date().toISOString().slice(0,10);
     await save(p); toast("Back on the active list. Update the ward and admission details."); go("edit-" + p.id);
   };
-  $("#hobtn").onclick = () => { $("#hotext").value = handover(p); $("#ho").hidden = false; $("#ho").scrollIntoView({behavior: "smooth", block: "start"}); };
+  $("#hobtn").onclick = () => { $("#hotext").value = handover(p); drawHoPhotos(); $("#ho").hidden = false; $("#ho").scrollIntoView({behavior: "smooth", block: "start"}); };
   $("#hoclose").onclick = () => { $("#ho").hidden = true; };
+  const drawHoPhotos = () => {
+    $("#hophwrap").innerHTML = p.photos.length ? `<label class="row" style="gap:10px;font-size:15px"><input type="checkbox" id="hoph" style="width:22px;height:22px">Include photos</label>
+    <div id="hophotos" hidden><p class="hint" style="margin:0 0 6px">Tick the photos to send.</p><div class="row" style="gap:8px;flex-wrap:wrap">${p.photos.map((ph, i) => `<label class="phpick"><input type="checkbox" value="${i}" aria-label="Photo ${i+1}"><img src="${ph.src}" alt=""></label>`).join("")}</div></div>` : "";
+    if ($("#hoph")) $("#hoph").onchange = () => { $("#hophotos").hidden = !$("#hoph").checked; };
+  };
+  $("#hoshare").onclick = async () => {
+    const text = $("#hotext").value;
+    const picked = $("#hoph")?.checked ? [...document.querySelectorAll('#hophotos input:checked')].map(x => +x.value) : [];
+    const files = await Promise.all(picked.map(async (i, n) => new File([await (await fetch(p.photos[i].src)).blob()], `photo-${n + 1}.jpg`, { type: "image/jpeg" })));
+    try {
+      if (files.length && navigator.canShare?.({ files })) await navigator.share({ text, files });
+      else if (navigator.share) { if (files.length) toast("This phone can't share photos from here; sharing the text"); await navigator.share({ text }); }
+      else { await navigator.clipboard.writeText(text); toast("Handover copied"); }
+    } catch (e) { if (e.name !== "AbortError") toast("Couldn't share: " + e.message); }
+  };
   $("#hocopy").onclick = () => { const txt = $("#hotext").value;
     navigator.clipboard.writeText(txt).then(() => toast("Handover copied"), () => { $("#hotext").focus(); $("#hotext").select(); toast("Select all and copy"); }); };
   $("#copy").onclick = () => { const txt = summaryText(p);
@@ -1144,7 +1168,7 @@ function renderPatient(id, openSec) {
   const drawCT = () => {
     $("#ctlist").innerHTML = p.ct.length ? p.ct.map((c, i) => `<div class="ct" data-i="${i}">
       <div class="grid32">
-        <label class="f"><span>Study</span><input data-ck="title" value="${esc(c.title)}" placeholder="e.g. CT abdomen/pelvis"></label>
+        <label class="f"><span>Study</span><input data-ck="title" value="${esc(c.title)}"></label>
         <label class="f"><span>Date</span><input data-ck="date" type="date" value="${esc(c.date)}"></label></div>
       ${c.found ? `<span class="ct-found">Copied from the “${esc(c.found)}” section of ${esc(c.file || "the report")}</span>` : (c.raw && !c.conclusion ? `<span class="status err">No conclusion heading found in ${esc(c.file || "the report")}. Copy the relevant part from the report text below.</span>` : "")}
       <label class="f"><span>Conclusion</span><textarea data-ck="conclusion" rows="4">${esc(c.conclusion)}</textarea></label>
@@ -1279,7 +1303,7 @@ function renderPatient(id, openSec) {
   const drawPh = () => {
     $("#phlist").innerHTML = p.photos.map((ph, i) => `<div class="thumb"><img src="${ph.src}" alt="${esc(ph.caption || "Clinical photo " + (i+1))}">
       <button data-i="${i}" aria-label="Remove photo">Remove</button>
-      <input data-ci="${i}" value="${esc(ph.caption)}" placeholder="Caption" aria-label="Photo caption"></div>`).join("");
+      <input data-ci="${i}" value="${esc(ph.caption)}" aria-label="Photo caption"></div>`).join("");
     $("#phlist").querySelectorAll("button").forEach(b => b.onclick = () => { p.photos.splice(+b.dataset.i, 1); autosave(); drawPh(); });
     $("#phlist").querySelectorAll("input").forEach(inp => inp.oninput = () => { p.photos[+inp.dataset.ci].caption = inp.value; autosave(); });
   };
@@ -1495,20 +1519,23 @@ function handover(p, opts = {}) {
   const sentence = s => { s = (s || "").trim().replace(/\s+/g, " "); if (!s) return ""; s = s[0].toUpperCase() + s.slice(1); return /[.!?]$/.test(s) ? s : s + "."; };
   const lowerFirst = s => { s = (s || "").trim().replace(/[.\s]+$/, ""); return s && !/^[A-Z]{2}/.test(s) ? s[0].toLowerCase() + s.slice(1) : s; };
   const yrs = parseInt(ageOf(p), 10);
-  const who = [isNaN(yrs) ? "" : yrs + "y", { M: "male", F: "female" }[p.sex] || ""].filter(Boolean).join(" ");
-  const head = [who, (p.name || "").trim(), admDay(p) ? "day " + admDay(p) + " of admission" : ""].filter(Boolean).join(" - ");
+  // 44y old male - Name with no comorbids. Day 2 of admission in 267 for X. CT/micro. Current plan: ...
+  const who = [isNaN(yrs) ? "" : yrs + "y old", { M: "male", F: "female" }[p.sex] || ""].filter(Boolean).join(" ");
   const parts = [];
-  if (head) parts.push(head + ".");
-  parts.push(sentence(`${p.comorbid ? "Known with " + lowerFirst(p.comorbid) : "No comorbids"}${p.diagnosis ? ", with " + lowerFirst(p.diagnosis) : ""}`));
-  if (p.ward && opts.ward !== false) parts.push(sentence(`${wardGroup(p) === "in" ? "Inpatient in ward" : "Outlier in ward"} ${p.ward}`));
-  const meds = patientMeds(p).filter(m => medCat(m.name) === "essential").map(medText).join("; ");
-  if (meds || p.treatment) parts.push(sentence(`Currently on ${[meds, lowerFirst(p.treatment)].filter(Boolean).join("; ")}`.replace(/^Currently on ;?\s*/, "Currently on ")));
+  const head = [who, (p.name || "").trim()].filter(Boolean).join(" - ");
+  parts.push(sentence(`${head}${head ? " " : ""}${p.comorbid ? "known with " + lowerFirst(p.comorbid) : "with no comorbids"}`));
+  const where = p.ward && opts.ward !== false ? "in " + p.ward.trim() : "";
+  const day = admDay(p) ? `Day ${admDay(p)} of admission` : "";
+  const line2 = [day, where, p.diagnosis ? "for " + lowerFirst(p.diagnosis) : ""].filter(Boolean).join(" ");
+  if (line2) parts.push(sentence(line2));
+  const meds = patientMeds(p).filter(m => medCat(m.name) === "essential").map(m => `${m.name}${m.freq ? " " + m.freq : ""} (day ${medDay(m)})`).join(", ");
+  if (meds) parts.push(sentence("On " + meds));
   const ct = p.ct.filter(c => c.conclusion).at(-1);
-  if (ct) parts.push(sentence(`${ct.title && ct.title !== "CT" ? ct.title : "CT"}${ct.date ? " (" + fmtDate(ct.date) + ")" : ""}: ${lowerFirst(ct.conclusion.replace(/\n+/g, " "))}`));
+  if (ct) { const first = ct.conclusion.replace(/^\s*(\d+[.)]|[-•*])\s*/, "").split(/(?<=[.;])\s|\n/)[0]; parts.push(sentence("CT: " + lowerFirst(first))); }
   const micro = handoverMicro(p);
   if (micro) parts.push(sentence("Micro: " + micro));
-  if (p.plan) parts.push(sentence(`Current plan: ${lowerFirst(p.plan)}`));
-  if (p.dispo) parts.push(sentence(`${DISPO[p.dispo]}${p.dispoNote ? ": " + lowerFirst(p.dispoNote) : ""}`));
+  const planBits = [p.plan ? lowerFirst(p.plan) : "", p.dispo ? lowerFirst(DISPO[p.dispo] || p.dispo) + (p.dispoNote ? " (" + lowerFirst(p.dispoNote) + ")" : "") : p.dispoNote ? lowerFirst(p.dispoNote) : ""].filter(Boolean);
+  if (planBits.length) parts.push(sentence("Current plan: " + planBits.join("; ")));
   return parts.join(" ");
 }
 
