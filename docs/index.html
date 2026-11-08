@@ -982,7 +982,7 @@ function secSummary(k, p) {
   if (k === "det") return "";
   if (k === "dx") return p.diagnosis || p.comorbid ? `${esc(p.diagnosis || "Diagnosis not recorded")}<div style="color:var(--muted);font-size:14px;margin-top:2px">Comorbidities: ${esc(p.comorbid || "none")}</div>` : none("Not recorded");
   if (k === "tx") { const ms = patientMeds(p);
-    return p.treatment || ms.length ? esc(p.treatment || "") + (ms.length ? `<ul>${ms.map(m => `<li>${esc(m.name)}${m.freq ? " <b>" + esc(m.freq) + "</b>" : ""} <span style="color:var(--muted)">· Day ${medDay(m)}</span></li>`).join("")}</ul>` : "") : none("Not recorded"); }
+    return p.treatment || ms.length ? esc(p.treatment || "") + (ms.length ? `<ul>${ms.map(m => `<li>${esc(m.name)}${m.freq ? " <b>" + esc(m.freq) + "</b>" : ""} ${medCat(m.name) === "essential" ? `<span style="color:var(--muted)">· Day ${medDay(m)}</span>` : ""}</li>`).join("")}</ul>` : "") : none("Not recorded"); }
   if (k === "ct") return (p.ct || []).length ? p.ct.map(c => `<div class="ctq"><div class="src">${esc(fmtDate(c.date))} · ${esc(c.title || "CT")}</div>${esc(c.conclusion || "No conclusion recorded")}</div>`).join("") : none("No CT reports");
   if (k === "lab") return (p.labs || []).length ? p.labs.map(l => `<div class="ctq"><div class="src">${esc(fmtDate(l.date))}${l.title ? " · " + esc(l.title) : ""}</div>${esc(l.notes || "No summary yet")}</div>`).join("") : none("No lab results");
   if (k === "pl") return p.plan ? esc(p.plan) : none("Not recorded");
@@ -1046,7 +1046,6 @@ function renderPatient(id, openSec) {
     <div class="seg2">
       ${[...new Set([...DISPO_CHOICES, ...(p.dispo && !DISPO_CHOICES.includes(p.dispo) ? [p.dispo] : [])])].map(k => `<button class="dbtn d-${k}" data-d="${k}" aria-pressed="${p.dispo === k}">${esc(DISPO[k] || k)}</button>`).join("")}
     </div>
-    <div id="dispodetail" ${p.dispo ? "" : "hidden"}>${field("dispoDate", "Date", p.dispoDate, 'type="date"')}</div>
     <label class="f"><span>Note</span><textarea id="dispoNote" data-k="dispoNote" rows="2">${esc(p.dispoNote)}</textarea></label>`)
   + S("ph", "Photos", `
     <p class="hint">Wounds, imaging on screen, drains. Up to 6 photos, stored compressed on this device.</p>
@@ -1073,7 +1072,7 @@ function renderPatient(id, openSec) {
   // expand / collapse
   const refresh = k => { const el = $("#sum-" + k); if (el) el.innerHTML = secSummary(k, p); if (k === "det" || k === "dp") $("#h-det").innerHTML = detHead(p); bindSumViewers(); };
   const setOpen = (box, open) => { box.classList.toggle("open", open); box.querySelector(".cs-h").setAttribute("aria-expanded", String(open)); };
-  const collapse = async box => { clearTimeout(t); await save(p); markSaved(); setOpen(box, false); refresh(box.dataset.sec); };
+  const collapse = async box => { clearTimeout(t); setOpen(box, false); refresh(box.dataset.sec); await save(p); markSaved(); };
   $("#app").querySelectorAll(".cs").forEach(box => {
     box.querySelector(".cs-h").onclick = () => box.classList.contains("open") ? collapse(box) : (setOpen(box, true), box.scrollIntoView({ block: "start", behavior: "smooth" }));
     box.querySelector(".cs-save").onclick = () => { collapse(box); box.scrollIntoView({ block: "nearest" }); };
@@ -1102,11 +1101,21 @@ function renderPatient(id, openSec) {
     if ($("#hoph")) $("#hoph").onchange = () => { $("#hophotos").hidden = !$("#hoph").checked; };
   };
   $("#hoshare").onclick = async () => {
-    const text = $("#hotext").value;
+    const text = $("#hotext").value, bt = $("#hoshare");
+    if (bt.dataset.textonly) { delete bt.dataset.textonly; bt.innerHTML = icon("copy") + "Share";
+      try { if (navigator.share) await navigator.share({ text }); else { await navigator.clipboard.writeText(text); toast("Handover copied"); } } catch (e) { if (e.name !== "AbortError") toast("Couldn't share: " + e.message); }
+      return; }
     const picked = $("#hoph")?.checked ? [...document.querySelectorAll('#hophotos input:checked')].map(x => +x.value) : [];
     const files = await Promise.all(picked.map(async (i, n) => new File([await (await fetch(p.photos[i].src)).blob()], `photo-${n + 1}.jpg`, { type: "image/jpeg" })));
     try {
-      if (files.length && navigator.canShare?.({ files })) await navigator.share({ text, files });
+      if (files.length && navigator.canShare?.({ files })) {
+        // many apps (WhatsApp) drop the text when photos are attached: copy it too, and offer a second step for the text
+        try { navigator.clipboard.writeText(text).catch(() => {}); } catch {}
+        await navigator.share({ text, files });
+        const b = $("#hoshare"); b.textContent = "Now share the text"; b.dataset.textonly = "1";
+        toast("Text copied as well: paste it, or tap “Now share the text”");
+        return;
+      }
       else if (navigator.share) { if (files.length) toast("This phone can't share photos from here; sharing the text"); await navigator.share({ text }); }
       else { await navigator.clipboard.writeText(text); toast("Handover copied"); }
     } catch (e) { if (e.name !== "AbortError") toast("Couldn't share: " + e.message); }
@@ -1125,11 +1134,11 @@ function renderPatient(id, openSec) {
   (p.unsure || []).forEach(k => $("#" + k)?.classList.add("unsure"));
   document.querySelectorAll(".dbtn").forEach(btn => btn.onclick = () => {
     const k = btn.dataset.d;
-    if (p.dispo === k) { p.dispo = ""; p.dispoDate = ""; $("#dispoDate").value = ""; }
+    if (p.dispo === k) { p.dispo = ""; p.dispoDate = ""; }
     else { p.dispo = k; if (isPast(p)) toast("Will move to Past when you go back to the list");
-      if (!p.dispoDate) { p.dispoDate = todayISO(); $("#dispoDate").value = p.dispoDate; } }
+      p.dispoDate = todayISO(); }
     document.querySelectorAll(".dbtn").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.d === p.dispo)));
-    $("#dispodetail").hidden = !p.dispo; autosave(); });
+    autosave(); });
   $("#del").onclick = () => {
     $("#delzone").innerHTML = `<div class="confirm">Delete ${esc(p.name || "this patient")} and all their data from this device?
       <button class="danger" id="delyes">Delete</button><button id="delno">Keep</button></div>`;
@@ -1167,9 +1176,7 @@ function renderPatient(id, openSec) {
   // CT
   const drawCT = () => {
     $("#ctlist").innerHTML = p.ct.length ? p.ct.map((c, i) => `<div class="ct" data-i="${i}">
-      <div class="grid32">
-        <label class="f"><span>Study</span><input data-ck="title" value="${esc(c.title)}"></label>
-        <label class="f"><span>Date</span><input data-ck="date" type="date" value="${esc(c.date)}"></label></div>
+      <label class="f"><span>Study</span><input data-ck="title" value="${esc(c.title)}"></label>
       ${c.found ? `<span class="ct-found">Copied from the “${esc(c.found)}” section of ${esc(c.file || "the report")}</span>` : (c.raw && !c.conclusion ? `<span class="status err">No conclusion heading found in ${esc(c.file || "the report")}. Copy the relevant part from the report text below.</span>` : "")}
       <label class="f"><span>Conclusion</span><textarea data-ck="conclusion" rows="4">${esc(c.conclusion)}</textarea></label>
       ${(c.pages || []).length ? `<div class="thumbs">${c.pages.map((src, j) => `<button class="thumb tap" data-pg="${j}" aria-label="Open page ${j+1}" style="padding:0"><img src="${src}" alt="CT report page ${j+1}"></button>`).join("")}</div>` : ""}
@@ -1227,7 +1234,7 @@ function renderPatient(id, openSec) {
     $("#meds").innerHTML = names.length ? names.map((n, i) => {
       const m = p.meds.find(x => x.name === n);
       return `<div class="medrow${m ? " on" : ""}" data-mi="${i}">
-        <div class="medmain"><button class="medname" aria-pressed="${!!m}">${esc(n)}</button>${m ? `<button class="medday" aria-label="Change day number for ${esc(n)}">Day ${medDay(m)} <span aria-hidden="true">✎</span></button>` : ""}</div>
+        <div class="medmain"><button class="medname" aria-pressed="${!!m}">${esc(n)}</button>${m && medCat(n) === "essential" ? `<button class="medday" aria-label="Change day number for ${esc(n)}">Day ${medDay(m)} <span aria-hidden="true">✎</span></button>` : ""}</div>
         <div class="freqs" role="radiogroup" aria-label="Frequency for ${esc(n)}">${FREQS.map(f => `<button class="freq" data-f="${f}" aria-pressed="${!!m && m.freq === f}">${f}</button>`).join("")}</div>
       </div>`; }).join("")
       : `<span class="hint">No medicines yet. Add them in Settings › Medicines.</span>`;
@@ -1262,9 +1269,7 @@ function renderPatient(id, openSec) {
   p.labs = p.labs || [];
   const drawLabs = () => {
     $("#lablist").innerHTML = p.labs.map((l, i) => `<div class="ct" data-i="${i}">
-      <div class="grid32">
-        <label class="f"><span>Results</span><input data-lk="title" value="${esc(l.title)}"></label>
-        <label class="f"><span>Date</span><input data-lk="date" type="date" value="${esc(l.date)}"></label></div>
+      <label class="f"><span>Results</span><input data-lk="title" value="${esc(l.title)}"></label>
       <label class="f"><span>Summary</span><textarea data-lk="notes" rows="${Math.min(10, Math.max(3, Math.ceil((l.notes || "").length / 32) + 1))}">${esc(l.notes)}</textarea></label>
       <div class="thumbs">${l.pages.map((src, j) => `<button class="thumb tap" data-pg="${j}" aria-label="Open page ${j+1}" style="padding:0"><img src="${src}" alt="Lab results page ${j+1}"></button>`).join("")}</div>
       <div class="row">${origButtons(l, "data-orig")}<button class="ghost danger" data-act="rm">Remove results</button></div></div>`).join("");
@@ -1346,7 +1351,7 @@ function medDay(m) {
   const [y, mo, d] = (m.start || todayISO()).split("-").map(Number), start = new Date(y, mo - 1, d), now = new Date();
   return Math.max(1, Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - start) / 864e5) + 1);
 }
-const medText = m => `${m.name}${m.freq ? " " + m.freq : ""}, Day ${medDay(m)}`;
+const medText = m => `${m.name}${m.freq ? " " + m.freq : ""}${medCat(m.name) === "essential" ? ", Day " + medDay(m) : ""}`; // supportive meds: no day count
 function saveMedButtons(list) { list = normButtons(list); medButtons._mem = list; try { localStorage.setItem("wpl-meds", JSON.stringify(list)); } catch {} }
 
 async function pdfPages(file, max) {
