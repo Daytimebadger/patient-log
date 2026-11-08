@@ -1536,8 +1536,9 @@ function handover(p, opts = {}) {
   // 44y old male - Name with no comorbids. Day 2 of admission in 267 for X. CT/micro. Current plan: ...
   const who = [isNaN(yrs) ? "" : yrs + "y old", { M: "male", F: "female" }[p.sex] || ""].filter(Boolean).join(" ");
   const parts = [];
-  const head = [who, (p.name || "").trim()].filter(Boolean).join(" - ");
-  parts.push(sentence(`${head}${head ? " " : ""}${p.comorbid ? "known with " + lowerFirst(p.comorbid) : "with no comorbids"}`));
+  const nameBit = [(p.name || "").trim(), (p.mrn || "").trim()].filter(Boolean).join(", "); // name, PMI
+  const head = [who, nameBit].filter(Boolean).join(" - ");
+  parts.push(sentence(`${head}${head ? (p.mrn ? ", " : " ") : ""}${p.comorbid ? "known with " + lowerFirst(p.comorbid) : "with no comorbids"}`));
   const where = p.ward && opts.ward !== false ? "in " + p.ward.trim() : "";
   const day = admDay(p) ? `Day ${admDay(p)} of admission` : "";
   const line2 = [day, where, p.diagnosis ? "for " + lowerFirst(p.diagnosis) : ""].filter(Boolean).join(" ");
