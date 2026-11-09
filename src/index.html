@@ -368,6 +368,16 @@ async function ocrImage(source, onProgress, psm = "3", whole = false) {
   const { data } = await w.recognize(source);
   ocrProgress = null; return whole ? data : (data.text || "");
 }
+async function ocrReport(source, prog, psm) {
+  // returns the text without unreadable lines, and how sure the reader is about the result section
+  const d = await ocrImage(source, prog, psm, true);
+  const lines = (d.lines || []).filter(l => l.text.trim() && (l.confidence >= 35 || /^\s*(conclusion|impression|comment|opinion|summary)/i.test(l.text)));
+  const text = lines.map(l => l.text.replace(/\n$/, "")).join("\n");
+  const hi = lines.findIndex(l => /^\s*(conclusions?|impressions?|comments?|opinion|summary)\b/i.test(l.text));
+  const sec = (hi >= 0 ? lines.slice(hi + 1, hi + 7) : lines).filter(l => l.text.trim().length > 8);
+  const conf = sec.length ? sec.reduce((a, l) => a + l.confidence, 0) / sec.length : d.confidence;
+  return { text, conf };
+}
 function prepForOcr(img) {
   // upscale small photos, downscale huge ones, grayscale + contrast stretch
   const longest = Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height);
@@ -1095,7 +1105,7 @@ function renderPatient(id, openSec) {
     $("#mgrid").innerHTML = p.media.map((m, i) => `<div class="mthumb"><button class="mopen" data-mi="${i}" aria-label="Open ${esc(m.name || "file")}">${m.thumb ? `<img src="${m.thumb}" alt="">` : `<span class="mdoc">${/pdf/.test(m.type) ? "PDF" : "TXT"}</span>`}${m.kind && m.kind !== "image" && m.kind !== "doc" ? `<span class="mtag">${mediaTag(m)}</span>` : ""}</button><button class="mx" data-mx="${i}" aria-label="Remove ${esc(m.name || "file")}">×</button></div>`).join("")
       || `<span class="hint">Nothing added yet.</span>`;
     const res = p.media.map((m, i) => [m, i]).filter(([m]) => m.kind === "ct" || m.kind === "lab");
-    $("#mres").innerHTML = res.map(([m, i]) => `<div class="ctq"><div class="src">${[m.kind === "ct" ? (m.title || "CT") : (m.title || MEDIA_KIND[m.kind]), m.date ? fmtDate(m.date) : ""].filter(Boolean).map(esc).join(" · ")}</div>
+    $("#mres").innerHTML = res.map(([m, i]) => `<div class="ctq"><div class="src">${[m.kind === "ct" ? (m.title || "CT") : (m.title || MEDIA_KIND[m.kind]), m.date ? fmtDate(m.date) : ""].filter(Boolean).map(esc).join(" · ")}${m.unsure ? ` <span style="color:var(--warn,#b45309)">· Hard to read, check the original</span>` : ""}</div>
       <textarea class="msum" data-ms="${i}" rows="2" aria-label="Summary of ${esc(m.name || "file")}">${esc(m.summary || "")}</textarea></div>`).join("") || `<span class="hint">CT and lab summaries appear here when you add reports under Media.</span>`;
     $("#mgrid").querySelectorAll("[data-mi]").forEach(b => b.onclick = () => openMedia(p.media[+b.dataset.mi]));
     $("#mgrid").querySelectorAll("[data-mx]").forEach(b => b.onclick = () => {
@@ -1197,7 +1207,9 @@ async function readMedia(f, prog) {
   if (isPdf) { m.data = await fileToDataURL(f); text = await pdfText(f, prog); m.pages = await pdfPages(f, 12); m.thumb = await shrink(m.pages[0], 240); }
   else if (isText) { text = await f.text(); m.data = await fileToDataURL(f); }
   else { const img = await fileToImage(f); m.data = drawScaled(img, 2000).toDataURL("image/jpeg", 0.85); m.type = "image/jpeg"; m.thumb = drawScaled(img, 240).toDataURL("image/jpeg", 0.7);
-    text = await ocrImage(prepForOcr(img), prog, "6"); }
+    const r = await ocrReport(prepForOcr(img), prog, "6"), res = interpretReport(r.text);
+    if (res.kind !== "doc" && r.conf < 75) res.unsure = true; // blurry photo: flag it so the original gets a look
+    Object.assign(m, res); return m.kind === "doc" ? Object.assign(m, { kind: "image" }) : m; }
   Object.assign(m, interpretReport(text));
   if (m.kind === "doc" && /^image\//.test(m.type)) m.kind = "image";
   return m;
