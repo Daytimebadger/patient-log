@@ -1100,10 +1100,10 @@ function renderPatient(id, openSec) {
 
   // media: thumbnails + one short summary per interpreted document
   const drawMedia = () => {
-    $("#mgrid").innerHTML = p.media.map((m, i) => `<div class="mthumb"><button class="mopen" data-mi="${i}" aria-label="Open ${esc(m.name || "file")}">${m.thumb ? `<img src="${m.thumb}" alt="">` : `<span class="mdoc">${/pdf/.test(m.type) ? "PDF" : "TXT"}</span>`}${m.kind && m.kind !== "image" && m.kind !== "doc" ? `<span class="mtag">${MEDIA_KIND[m.kind]}</span>` : ""}</button><button class="mx" data-mx="${i}" aria-label="Remove ${esc(m.name || "file")}">×</button></div>`).join("")
+    $("#mgrid").innerHTML = p.media.map((m, i) => `<div class="mthumb"><button class="mopen" data-mi="${i}" aria-label="Open ${esc(m.name || "file")}">${m.thumb ? `<img src="${m.thumb}" alt="">` : `<span class="mdoc">${/pdf/.test(m.type) ? "PDF" : "TXT"}</span>`}${m.kind && m.kind !== "image" && m.kind !== "doc" ? `<span class="mtag">${mediaTag(m)}</span>` : ""}</button><button class="mx" data-mx="${i}" aria-label="Remove ${esc(m.name || "file")}">×</button></div>`).join("")
       || `<span class="hint">Nothing added yet.</span>`;
     const res = p.media.map((m, i) => [m, i]).filter(([m]) => m.kind === "ct" || m.kind === "lab");
-    $("#mres").innerHTML = res.map(([m, i]) => `<div class="ctq"><div class="src">${[m.kind === "ct" ? (m.title || "CT") : MEDIA_KIND[m.kind], m.date ? fmtDate(m.date) : ""].filter(Boolean).map(esc).join(" · ")}</div>
+    $("#mres").innerHTML = res.map(([m, i]) => `<div class="ctq"><div class="src">${[m.kind === "ct" ? (m.title || "CT") : (m.title || MEDIA_KIND[m.kind]), m.date ? fmtDate(m.date) : ""].filter(Boolean).map(esc).join(" · ")}</div>
       <textarea class="msum" data-ms="${i}" rows="2" aria-label="Summary of ${esc(m.name || "file")}">${esc(m.summary || "")}</textarea></div>`).join("") || `<span class="hint">CT and lab summaries appear here when you add reports under Media.</span>`;
     $("#mgrid").querySelectorAll("[data-mi]").forEach(b => b.onclick = () => openMedia(p.media[+b.dataset.mi]));
     $("#mgrid").querySelectorAll("[data-mx]").forEach(b => b.onclick = () => {
@@ -1214,15 +1214,21 @@ async function shrink(src, max) { if (!src) return ""; const img = new Image(); 
 function interpretReport(text) {
   // CT: Conclusion / Comment / Impression. Bloods: Na, K, urea, creatinine, WCC, Hb, platelets. Micro: culture / Gram stain.
   const t = (text || "").trim(); if (t.length < 20) return { kind: "doc" };
-  const radiology = /\b(CT|C\.T\.|computed\s+tomograph\w*|MRI|radiolog\w*|contrast|axial|non[-\s]?contrast|angiogra\w*)\b/i.test(t);
+  const radiology = /\b(CT|C\.T\.|computed\s+tomograph\w*|MRI|X-?ray|radiograph\w*|ultrasound|radiolog\w*|contrast|axial|non[-\s]?contrast|angiogra\w*)\b/i.test(t);
   const concl = findConclusion(t);
   const labs = extractLabValues(t);
   if (concl && (radiology || !labs.count)) {
-    const title = ((t.match(/\b(CT[^\n]{0,60})/) || [])[1] || "CT").replace(/\s+/g, " ").trim().slice(0, 70);
+    const exam = (t.match(/examination\s*:[ \t]*([^\n]{3,70})/i) || t.match(/examination\s*:\s*\n\s*([^\n]{3,70})/i) || [])[1];
+    const title = (exam || (t.match(/\b(CT[^\n]{0,60})/) || [])[1] || "CT").replace(/\s*[|\[\]].*$/, "").replace(/\bX\s*[-—–.]?\s*r?ay\b/i, "X-ray").replace(/\s+/g, " ").trim().slice(0, 70);
     return { kind: "ct", title, summary: concl.text, date: reportDate(t, "ct") };
   }
   if (labs.count) return { kind: "lab", title: labs.title, summary: labs.notes, date: reportDate(t, "lab") };
   return { kind: "doc" };
+}
+function mediaTag(m) {
+  if (m.kind === "ct") { const t = m.title || ""; return /x-?ray|radiograph/i.test(t) ? "X-ray" : /\bMRI?\b/i.test(t) ? "MRI" : /ultrasound|sonar|\bUS\b/i.test(t) ? "US" : "CT"; }
+  if (m.kind === "lab") return m.title === "Micro" ? "Micro" : /micro/i.test(m.title || "") ? "Bloods / micro" : "Bloods";
+  return MEDIA_KIND[m.kind] || "";
 }
 function openMedia(m) {
   if (/^image\//.test(m.type)) return openViewer([m.data]);
@@ -1398,22 +1404,55 @@ const GENERA = "Staphylococcus|Streptococcus|Enterococcus|Escherichia|Klebsiella
 const ANTIBIOTIC = /(cillin|mycin|micin|floxacin|^cef|^ceph|penem|cycline|azole|trimoxazole|co-trimoxazole|vancomycin|linezolid|teicoplanin|colistin|fosfomycin|nitrofurantoin|clindamycin|amikacin|gentamicin|tazobactam|clavulan|sulbactam|rifampicin|fusidic|tigecycline|daptomycin|nystatin|fungin|amphotericin)/i;
 function microSummary(lines) {
   // Gram stain, organism(s) and sensitivities in one short line
+  lines = lines.filter(l => !/tests?\s+requested|requested\s*:/i.test(l));
   const txt = lines.join("\n"), parts = [];
-  const gram = txt.match(/gram\s*stain[^\n:]*[:\-]?\s*([^\n]{3,80})/i) || txt.match(/\b(gram[-\s]?(?:positive|negative)\s+(?:cocci|bacilli|rods|diplococci|coccobacilli)[^\n.;]{0,40}|no\s+organisms\s+seen)/i);
-  if (gram) parts.push("Gram stain: " + gram[1].trim().replace(/[.;,]$/, ""));
-  const orgs = [...new Set((txt.match(new RegExp("\\b(?:(?:" + GENERA + ")\\s+(?:[a-z]{3,}|spp?\\.?)|(?:MRSA|ESBL[^\\n,;]{0,20})|coagulase[-\\s]negative\\s+staphylococc\\w*|(?:E|S|K|P)\\.\\s?(?:coli|aureus|pneumoniae|aeruginosa|epidermidis))", "g")) || []).map(o => o.trim()))];
-  const none = txt.match(/\b(no\s+growth[^\n.;]{0,30}|no\s+pathogens?\s+isolated|mixed\s+growth[^\n.;]{0,30}|culture\s+negative|sterile)/i);
-  const S = [], R = [], I = [];
-  for (const l of lines) {
-    const m = l.match(/^([A-Za-z][A-Za-z\/\- ]{3,40}?)\s*[:.]?\s+(S|R|I|Sensitive|Susceptible|Resistant|Intermediate)\b/i);
-    if (!m || !ANTIBIOTIC.test(m[1].trim())) continue;
-    const a = m[1].trim().toLowerCase(), r = m[2][0].toUpperCase();
-    (r === "S" ? S : r === "R" ? R : I).push(a);
+  const spec = txt.match(/specimen(?:\s+(?:received|type|source))?\s*:\s*([^\n]{3,60})/i);
+  if (spec) parts.push(spec[1].trim().replace(/\s+/g, " ").replace(/[.;,]$/, ""));
+  // NHLS layout: "Gram Stain:" on its own line, then one finding per line ("Gram positive cocci   Scanty (1+)")
+  const gi = lines.findIndex(l => /^\s*gram\s*stain\s*:?\s*$/i.test(l));
+  const gramList = [];
+  if (gi >= 0) for (let i = gi + 1; i < lines.length; i++) {
+    const t = lines[i].trim().replace(/\s+/g, " ");
+    if (!t && !gramList.length) continue;
+    if (!t || /:\s*$/.test(t) || /^(bacterial|fungal)?\s*culture|^authori[sz]ed|^comment/i.test(t)) break;
+    gramList.push(t.replace(/^organisms?\s+/i, "").replace(/\b(scanty|few|moderate|numerous|many|occasional|rare)\s*\((\d\+)\)/i, "$2").replace(/\b(\w+)\s*\((\d\+)\)/, "$1 $2"));
+    if (gramList.length > 6) break;
   }
-  if (orgs.length) {
-    const sens = [S.length ? "S: " + S.join(", ") : "", R.length ? "R: " + R.join(", ") : "", I.length ? "I: " + I.join(", ") : ""].filter(Boolean).join("; ");
-    parts.push("Culture: " + orgs.join(", ") + (sens ? " (" + sens + ")" : ""));
-  } else if (none) parts.push("Culture: " + none[1].trim().toLowerCase());
+  const gram = gramList.length ? [null, gramList.join(", ")] : txt.match(/gram\s*stain[^\n:]*[:\-]?\s*([^\n]{3,80})/i) || txt.match(/\b(gram[-\s]?(?:positive|negative)\s+(?:cocci|bacilli|rods|diplococci|coccobacilli)[^\n.;]{0,40}|no\s+organisms\s+seen)/i);
+  if (gram) parts.push("Gram stain: " + gram[1].trim().replace(/[.;,]$/, ""));
+  // culture section ("Bacterial Culture:" then lines, NHLS marks provisional lines with "$")
+  const ci = lines.findIndex(l => /^\s*(?:bacterial\s+|fungal\s+)?culture\s*:?\s*$/i.test(l));
+  const cult = [];
+  if (ci >= 0) for (let i = ci + 1; i < lines.length; i++) {
+    const t = lines[i].replace(/^\s*\$\s*/, "").trim().replace(/\s+/g, " ");
+    if (!t) continue;
+    if (/^(authori[sz]ed|not\s+authori[sz]ed|--\s*end|end\s+of|S\s*-\s*Sensitive|gram\s*stain|comment)/i.test(t)) break;
+    cult.push(t);
+  }
+  const ctxt = cult.length ? cult.join("\n") : txt;
+  const orgRe = new RegExp("\\b(?:(?:" + GENERA + ")\\s+(?:[a-z]{3,}|spp?\\.?)|(?:MRSA|ESBL[^\\n,;]{0,20})|coagulase[-\\s]negative\\s+staphylococc\\w*|(?:E|S|K|P)\\.\\s?(?:coli|aureus|pneumoniae|aeruginosa|epidermidis))(?:[^\\n(]*\\(([A-Z]{4,6})\\))?", "g");
+  const orgs = []; let om;
+  while ((om = orgRe.exec(ctxt))) { const name = om[0].replace(/\s*\([A-Z]{4,6}\)$/, "").replace(/\s+subsp\b.*$/i, "").trim(); if (!orgs.some(o => o.name === name)) orgs.push({ name, code: om[1] || "", S: [], R: [], I: [] }); }
+  const none = ctxt.match(/\b(no\s+growth[^\n.;]{0,30}|no\s+pathogens?\s+isolated|mixed\s+growth[^\n.;]{0,30}|culture\s+negative|sterile)/i);
+  // sensitivities: a table with one column per organism ("Antibiotic/Culture:  STAAU  STRDD"), or one S/R per line
+  const hi = lines.findIndex(l => /antibiotic/i.test(l) && /\b[A-Z]{4,6}\b/.test(l.replace(/antibiotic\w*\s*\/?\s*culture\s*:?/i, "")));
+  const cols = hi >= 0 ? (lines[hi].replace(/^.*?:/, "").match(/\b[A-Z]{4,6}\b/g) || []) : [];
+  const target = c => orgs.find(o => o.code === c) || orgs[cols.indexOf(c)];
+  const loose = { S: [], R: [], I: [] };
+  for (const l of lines.slice(hi >= 0 ? hi + 1 : 0)) {
+    const t = l.replace(/^\s*\$\s*/, "").trim();
+    const m = t.match(/^([A-Za-z][A-Za-z\/\- ]{3,50}?)\s*[:.]?\s+((?:(?:SDD|S|R|I|Sensitive|Susceptible|Resistant|Intermediate)\b\s*)+)$/i);
+    if (!m || !ANTIBIOTIC.test(m[1].trim())) continue;
+    const a = m[1].trim().replace(/\s+/g, " ").toLowerCase(), vals = m[2].trim().split(/\s+/).map(v => v.toUpperCase() === "SDD" ? "S" : v[0].toUpperCase());
+    if (cols.length) vals.forEach((v, k) => { const o = target(cols[k]); if (o) (o[v] || o.S).push(a); });
+    else (loose[vals[0]] || loose.S).push(a);
+  }
+  if (!cols.length && orgs.length) Object.assign(orgs[0], loose);
+  const sensOf = o => [o.S.length ? "S: " + o.S.join(", ") : "", o.R.length ? "R: " + o.R.join(", ") : "", o.I.length ? "I: " + o.I.join(", ") : ""].filter(Boolean).join("; ");
+  if (orgs.length) parts.push("Culture: " + orgs.map(o => o.name + (sensOf(o) ? " (" + sensOf(o) + ")" : "")).join(", "));
+  else if (none) parts.push("Culture: " + none[1].trim().toLowerCase());
+  else if (cult.length) parts.push("Culture: " + cult[0].replace(/[.;,]$/, ""));
+  if (/\bprovisional\b/i.test(txt)) parts.push("Provisional result");
   return parts.join(". ");
 }
 
@@ -1424,10 +1463,13 @@ function handoverMicro(p) {
   for (const l of reps.reverse()) {
     const line = l.summary.split("\n").find(x => /^\s*micro\s*:/i.test(x)); if (!line) continue;
     const body = line.replace(/^\s*micro\s*:\s*/i, "");
-    const cult = body.match(/culture\s*:\s*([^.(]+)/i);
-    const gram = body.match(/gram\s*stain\s*:\s*([^.(]+)/i);
-    let t = cult ? cult[1] : gram ? gram[1] : body.replace(/\([^)]*\)/g, "");
-    t = t.replace(/\b([A-Z])[a-z]{3,}\s+(?=[a-z]{3,}\b|spp?\b)/g, "$1. ").replace(/\s+/g, " ").trim().replace(/[.;,]$/, "");
+    const cm = body.match(/culture\s*:\s*(.*)$/i);
+    const cult = cm && [null, cm[1].replace(/\([^)]*\)/g, "").split(/\.\s/)[0].replace(/\s+,/g, ",")];
+    const gm = body.match(/gram\s*stain\s*:\s*([^.(]+)/i);
+    const gram = gm && gm[1].split(/,\s*/).filter(x => !/^\s*(neutrophils|pus\s+cells|epithelial|leucocytes|white\s+cells)\b/i.test(x)).join(", ");
+    const pending = cult && /to\s+follow|pending|in\s+progress/i.test(cult[1]);
+    let t = cult && !(pending && gram) ? cult[1] : gram ? (/\bgram\b/i.test(gram) ? gram : "Gram stain: " + gram) : cult ? cult[1] : body.replace(/\([^)]*\)/g, "");
+    t = t.replace(new RegExp("\\b(" + GENERA + ")\\s+(?=[a-z]{3,}\\b|spp?\\b)", "g"), m => m[0] + ". ").replace(/\s+/g, " ").trim().replace(/[.;,]$/, "");
     if (t) return t;
   }
   return "";
