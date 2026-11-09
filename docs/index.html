@@ -710,7 +710,23 @@ function findConclusion(raw) {
       if (body.join(" ").length > 2000) break;
     }
     const out = body.join("\n").replace(/\n{2,}/g, "\n").trim();
-    const clean = out.split("\n").map(l => l.replace(SIG_INLINE, "").trim()).filter(Boolean).join("\n");
+    const bullet = l => l.replace(/^[«»+•·*©®°¢~>]+\s*/, "- ");
+    let clean = out.split("\n").map(l => bullet(l.replace(SIG_INLINE, "").trim())).filter(l => l.replace(/^- /, "").trim()).join("\n");
+    // an addendum after the conclusion is part of the answer: keep its text, drop the "Version 1 from <date> of <doctor>" header
+    const ai = lines.findIndex((l, i) => i > hit && /^\s*addendum\b/i.test(l));
+    if (ai >= 0) {
+      const add = [];
+      const head = lines[ai].replace(/^\s*addendum\s*[:\-]?\s*/i, "").replace(/^version\s*\d+.*$/i, "").replace(SIG_INLINE, "").trim();
+      if (head) add.push(head);
+      for (let i = ai + 1; i < lines.length && add.length < 6; i++) {
+        const t = lines[i].trim();
+        if (!t) { if (add.length) break; continue; }
+        if (/^the\s+rest\s+(is\s+)?as\s+(above|before)/i.test(t) || STOP.test(t)) break;
+        add.push(t.replace(SIG_INLINE, "").trim());
+      }
+      const at = add.filter(Boolean).join(" ").trim();
+      if (at) clean += "\nAddendum: " + at;
+    }
     if (clean.length > 3) return { label, text: tidy(clean) };
   }
   return null;
