@@ -702,7 +702,8 @@ function findConclusion(raw) {
     }
     const out = body.join("\n").replace(/\n{2,}/g, "\n").trim();
     const bullet = l => l.replace(/^[«»+•·*©®°¢~>]+\s*/, "- ");
-    let clean = out.split("\n").map(l => bullet(l.replace(SIG_INLINE, "").trim())).filter(l => l.replace(/^- /, "").trim()).join("\n");
+    const advice = l => /\b(is|are)\s+(strongly\s+)?(recommended|advised|suggested)\b|^(-\s*)?(please|kindly)?\s*(urgent\s+)?(clinical\s+correlation|correlate|recommend|suggest|advise|referral|consider\s+(referral|consult))|\bconsult(ation)?\s+(is\s+)?(recommended|advised|suggested)/i.test(l);
+    let clean = out.split("\n").map(l => bullet(l.replace(SIG_INLINE, "").trim())).filter(l => l.replace(/^- /, "").trim() && !advice(l)).join("\n");
     // an addendum after the conclusion is part of the answer: keep its text, drop the "Version 1 from <date> of <doctor>" header
     const ai = lines.findIndex((l, i) => i > hit && /^\s*addendum\b/i.test(l));
     if (ai >= 0) {
@@ -1393,12 +1394,21 @@ function extractLabValues(raw) {
 
 const GENERA = "Staphylococcus|Streptococcus|Enterococcus|Escherichia|Klebsiella|Pseudomonas|Acinetobacter|Enterobacter|Proteus|Serratia|Citrobacter|Morganella|Salmonella|Shigella|Haemophilus|Moraxella|Neisseria|Stenotrophomonas|Bacillus|Corynebacterium|Nocardia|Candida|Aspergillus|Fusarium|Cryptococcus|Mycobacterium|Clostridi(?:um|oides)|Bacteroides";
 const ANTIBIOTIC = /(cillin|mycin|micin|floxacin|^cef|^ceph|penem|cycline|azole|trimoxazole|co-trimoxazole|vancomycin|linezolid|teicoplanin|colistin|fosfomycin|nitrofurantoin|clindamycin|amikacin|gentamicin|tazobactam|clavulan|sulbactam|rifampicin|fusidic|tigecycline|daptomycin|nystatin|fungin|amphotericin)/i;
+function gramAbbr(s) {
+  // Gram positive cocci → GPC, Gram negative bacilli → GNB, diplococci → DC, coccobacilli → CB
+  return s.replace(/\bgram[-\s]*(positive|negative|variable)\s+(diplococci|coccobacilli|cocci|bacilli|rods|organisms?)\b/gi, (m, sign, shape) =>
+    "G" + { p: "P", n: "N", v: "V" }[sign[0].toLowerCase()] + ({ diplococci: "DC", coccobacilli: "CB", cocci: "C", bacilli: "B", rods: "R" }[shape.toLowerCase()] || " organisms"));
+}
+function orgAbbr(name) {
+  // Staphylococcus aureus → S. aureus; coagulase-negative staphylococci → CoNS
+  return name.replace(/coagulase[-\s]negative\s+staphylococc\w*/i, "CoNS").replace(new RegExp("\\b(" + GENERA + ")\\s+(?=[a-z]{3,}\\b|spp?\\b)"), m => m[0] + ". ");
+}
 function microSummary(lines) {
   // Gram stain, organism(s) and sensitivities in one short line
   lines = lines.filter(l => !/tests?\s+requested|requested\s*:/i.test(l));
   const txt = lines.join("\n"), parts = [];
   const spec = txt.match(/specimen(?:\s+(?:received|type|source))?\s*:\s*([^\n]{3,60})/i);
-  if (spec) parts.push(spec[1].trim().replace(/\s+/g, " ").replace(/[.;,]$/, ""));
+  if (spec) parts.push(spec[1].trim().replace(/\s+/g, " ").replace(/\s*\((superficial|deep)\)/i, "").replace(/^swab\s*\(([^)]+)\)$/i, "$1 swab").replace(/[.;,]$/, ""));
   // NHLS layout: "Gram Stain:" on its own line, then one finding per line ("Gram positive cocci   Scanty (1+)")
   const gi = lines.findIndex(l => /^\s*gram\s*stain\s*:?\s*$/i.test(l));
   const gramList = [];
@@ -1410,7 +1420,7 @@ function microSummary(lines) {
     if (gramList.length > 6) break;
   }
   const gram = gramList.length ? [null, gramList.join(", ")] : txt.match(/gram\s*stain[^\n:]*[:\-]?\s*([^\n]{3,80})/i) || txt.match(/\b(gram[-\s]?(?:positive|negative)\s+(?:cocci|bacilli|rods|diplococci|coccobacilli)[^\n.;]{0,40}|no\s+organisms\s+seen)/i);
-  if (gram) parts.push("Gram stain: " + gram[1].trim().replace(/[.;,]$/, ""));
+  if (gram) parts.push("Gram stain: " + gramAbbr(gram[1].trim().replace(/[.;,]$/, "")));
   // culture section ("Bacterial Culture:" then lines, NHLS marks provisional lines with "$")
   const ci = lines.findIndex(l => /^\s*(?:bacterial\s+|fungal\s+)?culture\s*:?\s*$/i.test(l));
   const cult = [];
@@ -1440,10 +1450,9 @@ function microSummary(lines) {
   }
   if (!cols.length && orgs.length) Object.assign(orgs[0], loose);
   const sensOf = o => [o.S.length ? "S: " + o.S.join(", ") : "", o.R.length ? "R: " + o.R.join(", ") : "", o.I.length ? "I: " + o.I.join(", ") : ""].filter(Boolean).join("; ");
-  if (orgs.length) parts.push("Culture: " + orgs.map(o => o.name + (sensOf(o) ? " (" + sensOf(o) + ")" : "")).join(", "));
-  else if (none) parts.push("Culture: " + none[1].trim().toLowerCase());
-  else if (cult.length) parts.push("Culture: " + cult[0].replace(/[.;,]$/, ""));
-  if (/\bprovisional\b/i.test(txt)) parts.push("Provisional result");
+  if (orgs.length) parts.push("Culture: " + orgs.map(o => orgAbbr(o.name)).join(", ")); // sensitivities stay on the original report
+  else if (none) parts.push("Culture: " + none[1].trim().toLowerCase().replace(/^an?\s+/, "").replace(/\s+isolated$/, ""));
+  else if (cult.length) parts.push("Culture: " + cult[0].replace(/[.;,]$/, "").replace(/\bidentification\b/i, "ID"));
   return parts.join(". ");
 }
 
@@ -1459,7 +1468,7 @@ function handoverMicro(p) {
     const gm = body.match(/gram\s*stain\s*:\s*([^.(]+)/i);
     const gram = gm && gm[1].split(/,\s*/).filter(x => !/^\s*(neutrophils|pus\s+cells|epithelial|leucocytes|white\s+cells)\b/i.test(x)).join(", ");
     const pending = cult && /to\s+follow|pending|in\s+progress/i.test(cult[1]);
-    let t = cult && !(pending && gram) ? cult[1] : gram ? (/\bgram\b/i.test(gram) ? gram : "Gram stain: " + gram) : cult ? cult[1] : body.replace(/\([^)]*\)/g, "");
+    let t = cult && !(pending && gram) ? cult[1] : gram ? (/\b(gram|G[NPV](?:C|B|DC|CB|R))\b/i.test(gram) ? gram : "Gram stain: " + gram) : cult ? cult[1] : body.replace(/\([^)]*\)/g, "");
     t = t.replace(new RegExp("\\b(" + GENERA + ")\\s+(?=[a-z]{3,}\\b|spp?\\b)", "g"), m => m[0] + ". ").replace(/\s+/g, " ").trim().replace(/[.;,]$/, "");
     if (t) return t;
   }
