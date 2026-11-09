@@ -153,6 +153,16 @@ details summary{cursor:pointer;font-size:14px;color:var(--muted);font-weight:700
 .blk:last-child{border-bottom:0}
 @media (max-width:520px){.blk{grid-template-columns:1fr;gap:4px}}
 .blk h2{padding-top:2px}
+.mgrid{display:flex;flex-wrap:wrap;gap:8px}
+.mthumb{position:relative;width:64px;height:64px}
+.mopen{all:unset;cursor:pointer;display:block;width:64px;height:64px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--surface-2,#eef1f4);position:relative}
+.mopen img{width:100%;height:100%;object-fit:cover;display:block}
+.mdoc{display:flex;align-items:center;justify-content:center;height:100%;font-weight:700;font-size:13px;color:var(--muted)}
+.mtag{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);color:#fff;font-size:10px;font-weight:700;text-align:center;padding:1px 0}
+.mx{all:unset;cursor:pointer;position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 4px;border-radius:999px;background:var(--surface);border:1px solid var(--line);font-size:13px;line-height:20px;text-align:center;color:var(--muted)}
+.mx.sure{background:var(--red);color:#fff;border-color:var(--red);font-size:11px}
+.msum{border:0;background:transparent;padding:0;font:inherit;font-size:15px;width:100%;resize:none;color:inherit;min-height:0}
+.msum:focus{outline:1px dashed var(--line)}
 .cs,.ho{scroll-margin-top:calc(78px + env(safe-area-inset-top,0px))}
 .tiny{display:flex;flex-wrap:wrap;gap:6px}
 .tiny button{all:unset;cursor:pointer;width:44px;height:44px;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
@@ -717,8 +727,8 @@ function tidy(s) { // re-join lines that were wrapped mid-sentence, keep numbere
 let patients = [];
 function blank() {
   return { id: uid(), created: new Date().toISOString(), updated: new Date().toISOString(),
-    name: "", dob: "", sex: "", mrn: "", nhs: "", ward: "", consultant: "", address: "", admitted: new Date().toISOString().slice(0,10),
-    sticker: null, stickerText: "", diagnosis: "", comorbid: "", treatment: "", plan: "", meds: [], labs: [], ct: [], dispo: "", dispoNote: "", dispoDate: "", photos: [] };
+    name: "", dob: "", sex: "", mrn: "", nhs: "", ward: mainWard(), consultant: "", address: "", admitted: new Date().toISOString().slice(0,10),
+    sticker: null, stickerText: "", diagnosis: "", comorbid: "", treatment: "", plan: "", meds: [], labs: [], ct: [], dispo: "", dispoNote: "", dispoDate: "", photos: [], notes: "", media: [], v2: true };
 }
 function example() {
   const p = blank();
@@ -740,7 +750,7 @@ async function load() {
   for (const p of patients.filter(p => p.example || isEmptyRecord(p))) { try { await store.del(p.id); } catch {} }
   patients = patients.filter(p => !p.example && !isEmptyRecord(p));
 }
-const isEmptyRecord = p => !p.name && !p.mrn && !p.age && !p.sex && !p.ward && !p.diagnosis && !p.comorbid && !p.treatment && !p.plan
+const isEmptyRecord = p => !p.name && !p.mrn && !p.age && !p.sex && !(p.notes || "").trim() && !(p.media || []).length && !p.diagnosis && !p.comorbid && !p.treatment && !p.plan
   && !(p.meds || []).length && !(p.ct || []).length && !(p.labs || []).length && !(p.photos || []).length && !p.sticker && !p.dispo;
 async function save(p) {
   p.updated = new Date().toISOString();
@@ -791,13 +801,13 @@ function renderList(past = false) {
   const draw = () => {
     const q = filter.q.toLowerCase();
     const base = past ? pastList : active.filter(p => filter.d === "all" || wardGroup(p) === filter.d);
-    const rows = base.filter(p => !q || [p.name, p.mrn, p.diagnosis, p.ward].join(" ").toLowerCase().includes(q))
+    const rows = base.filter(p => !q || [p.name, p.mrn, p.notes, p.diagnosis, p.ward].join(" ").toLowerCase().includes(q))
       .sort((a, b) => past ? (b.dispoDate || b.updated || "").localeCompare(a.dispoDate || a.updated || "") : (b.updated || "").localeCompare(a.updated || ""));
     const card = p => `<li><button class="pcard" data-id="${p.id}">
         <span class="nm">${esc(p.name || "Unnamed patient")}</span>
         ${p.dispo ? `<span class="pill d-${p.dispo}">${esc(DISPO[p.dispo])}${past && p.dispoDate ? " " + esc(fmtDate(p.dispoDate)) : ""}</span>` : "<span></span>"}
         <span class="meta"><span class="mono">${p.mrn ? "PMI " + esc(p.mrn) : "No PMI"}</span>${ageOf(p) || p.sex ? `<span>${esc([ageOf(p), p.sex].filter(Boolean).join(" · "))}</span>` : ""}${p.ward ? `<span>${esc(p.ward)}</span>` : ""}${p.example ? `<span class="tag">Example</span>` : ""}</span>
-        ${p.diagnosis ? `<span class="dx">${esc(p.diagnosis)}</span>` : ""}
+        ${(p.notes || p.diagnosis) ? `<span class="dx">${esc((p.notes || p.diagnosis).split("\n")[0])}</span>` : ""}
       </button></li>`;
     const groups = past ? [["", "", rows]] : [["Inpatients", `Ward ${esc(mainWard())}`, rows.filter(p => wardGroup(p) === "in")],
       ["Outliers", "Other wards", rows.filter(p => wardGroup(p) === "out")],
@@ -829,7 +839,7 @@ function renderOptions() {
     </ul>
     <h2 class="ghead" style="font-size:16px">Configuration</h2>
     <ul class="olist" style="margin-top:8px">
-      <li><button class="orow" id="o-meds" aria-expanded="false">${icon("plus")}<span class="grow">Medicines<small></small></span>${icon("chev")}</button>
+      <li hidden><button class="orow" id="o-meds" aria-expanded="false">${icon("plus")}<span class="grow">Medicines<small></small></span>${icon("chev")}</button>
         <div class="opanel" id="o-medpanel" hidden>
           ${["essential", "supportive"].map(c => `<div class="medcat">${c === "essential" ? "Essential (included in handovers)" : "Supportive (not in handovers)"}</div>
           <ul class="medlist" id="o-list-${c}"></ul>
@@ -1000,59 +1010,38 @@ function detHead(p) {
 function renderSummary(id) { renderPatient(id, null); }
 function renderPatient(id, openSec) {
   const p = patients.find(x => x.id === id); if (!p) return go("");
-  const sec = null;
+  migrateV2(p);
+  const openedPast = isPast(p);
   $("#topbar").innerHTML = `<button class="ghost" id="back" aria-label="Back to patient list">${icon("back")}</button>
     <p class="brand">${isPast(p) ? "Past patient" : "Patient"}</p><span></span>`;
-  const openedPast = isPast(p);
-  const S = (k, title, body, actions = "") => `
-  <section class="sec cs${openSec === k ? " open" : ""}" data-sec="${k}" aria-labelledby="h-${k}">
-    <button type="button" class="cs-h${k === "det" ? " dethead" : ""}" aria-expanded="${openSec === k}" aria-controls="b-${k}">${k === "det" ? `<div id="h-det">${detHead(p)}</div>` : `<h2 id="h-${k}">${title}</h2>`}</button>
-    <div class="secsum" id="sum-${k}">${secSummary(k, p)}</div>
-    <div class="secbody" id="b-${k}">${actions ? `<div class="row" style="gap:8px;justify-content:flex-end">${actions}</div>` : ""}${body}
-      <button class="primary cs-save" data-save="${k}">Save</button></div>
-  </section>`;
-  $("#app").innerHTML =
-  S("det", "Patient details", `
-    <p class="hint">Take a clear, close photo of the patient label. The fields fill in automatically; check each one.</p>
-    <div class="status" id="stk-st"></div>
-    ${p.sticker ? `<div class="thumbs"><div class="thumb"><img src="${p.sticker}" alt="Sticker photo"></div></div>` : ""}
-    ${field("name", "Name and surname", p.name)}
-    <div class="grid2">${field("mrn", "File no. (PMI)", p.mrn, 'class="mono" inputmode="numeric"')}${field("age", "Age", p.age || ageFrom(p.dob))}</div>
-    <div class="grid2"><label class="f"><span>Gender</span><select id="sex" data-k="sex"><option value=""></option><option ${p.sex==="M"?"selected":""} value="M">Male</option><option ${p.sex==="F"?"selected":""} value="F">Female</option></select></label>${field("ward", "Ward / bed", p.ward)}</div>
-    ${field("admitted", "Admitted", p.admitted, 'type="date"')}
-    <div id="delzone"><button class="ghost danger" id="del">Delete this patient</button></div>`,
-    `<label class="btn primary filebtn">${icon("cam")}Sticker<input type="file" id="stk" accept="image/*"></label>`)
-  + S("dx", "Diagnosis", `
-    <textarea id="diagnosis" data-k="diagnosis" aria-labelledby="h-dx">${esc(p.diagnosis)}</textarea>
-    ${field("comorbid", "Comorbidities", p.comorbid)}`)
-  + S("tx", "Treatment", `
-    <textarea id="treatment" data-k="treatment" aria-labelledby="h-tx">${esc(p.treatment)}</textarea>
-    <div class="medbox open" id="medbox">
-      <p class="hint medhint" style="margin:0 0 8px"><b>Meds</b>: tap a name to start or stop it, then pick how often.</p>
-      <div class="meds" id="meds"></div></div>`)
-  + S("ct", "CT", `
-    <p class="hint">Paste a report you've copied (text or a screenshot), or add a PDF or photo. The conclusion (or impression / comment) is found and copied in; edit it if needed.</p>
-    <div class="status" id="ct-st"></div>
-    <div class="stack" id="ctlist"></div>`,
-    `<button class="btn" id="ctpaste">${icon("copy")}Paste</button><label class="btn filebtn">${icon("doc")}Add<input type="file" id="ctf" accept="application/pdf,image/*,.txt"></label>`)
-  + S("lab", "Labs", `
-    <p class="hint">Paste results you've copied (text or a screenshot), or add a screenshot or PDF. The original is kept as it is, and the key results are summarised above it.</p>
-    <div class="status" id="lab-st"></div>
-    <div class="stack" id="lablist"></div>`,
-    `<button class="btn" id="labpaste">${icon("copy")}Paste</button><label class="btn filebtn">${icon("doc")}Add<input type="file" id="labf" accept="application/pdf,image/*" multiple></label>`)
-  + S("pl", "Plan", `<textarea id="plan" data-k="plan" rows="3" aria-labelledby="h-pl">${esc(p.plan)}</textarea>`)
-  + S("dp", "Disposition", `
-    <p class="hint">Tap again to clear.</p>
-    <div class="seg2">
-      ${[...new Set([...DISPO_CHOICES, ...(p.dispo && !DISPO_CHOICES.includes(p.dispo) ? [p.dispo] : [])])].map(k => `<button class="dbtn d-${k}" data-d="${k}" aria-pressed="${p.dispo === k}">${esc(DISPO[k] || k)}</button>`).join("")}
+  $("#app").innerHTML = `
+  <section class="sec cs${openSec === "det" ? " open" : ""}" data-sec="det" aria-labelledby="h-det">
+    <button type="button" class="cs-h dethead" aria-expanded="${openSec === "det"}" aria-controls="b-det"><div id="h-det">${detHead(p)}</div></button>
+    <div class="secbody" id="b-det">
+      <div class="row" style="gap:8px;justify-content:flex-end"><label class="btn primary filebtn">${icon("cam")}Sticker<input type="file" id="stk" accept="image/*"></label></div>
+      <div class="status" id="stk-st"></div>
+      ${field("name", "Name and surname", p.name)}
+      <div class="grid2">${field("mrn", "File no. (PMI)", p.mrn, 'class="mono" inputmode="numeric"')}${field("age", "Age", p.age || ageFrom(p.dob))}</div>
+      <div class="grid2"><label class="f"><span>Gender</span><select id="sex" data-k="sex"><option value=""></option><option ${p.sex==="M"?"selected":""} value="M">Male</option><option ${p.sex==="F"?"selected":""} value="F">Female</option></select></label>${field("ward", "Ward / bed", p.ward)}</div>
+      ${field("admitted", "Admitted", p.admitted, 'type="date"')}
+      <div class="row" style="justify-content:space-between"><div id="delzone"><button class="ghost danger" id="del">Delete this patient</button></div><button class="primary cs-save">Save</button></div>
     </div>
-    <label class="f"><span>Note</span><textarea id="dispoNote" data-k="dispoNote" rows="2">${esc(p.dispoNote)}</textarea></label>`)
-  + S("ph", "Photos", `
-    <p class="hint">Wounds, imaging on screen, drains. Up to 6 photos, stored compressed on this device.</p>
-    <div class="thumbs" id="phlist"></div>`,
-    `<label class="btn filebtn">${icon("img")}Add photo<input type="file" id="phf" accept="image/*" multiple></label>`)
-  + `
-  ${(p.history || []).length ? `<section class="sec"><h2>Previous admissions</h2><div>${p.history.map(h => `<div class="ctq"><div class="src">${esc(fmtDate(h.admitted))} to ${esc(fmtDate(h.date) || "?")} · ${esc(DISPO[h.dispo] || "")}${h.ward ? " · " + esc(h.ward) : ""}</div>${esc(h.diagnosis || "")}${h.note ? "\n" + esc(h.note) : ""}</div>`).join("")}</div></section>` : ""}
+  </section>
+
+  <section class="sec" aria-labelledby="h-notes">
+    <h2 id="h-notes">Notes</h2>
+    <textarea id="notes" data-k="notes" rows="${Math.min(18, Math.max(5, (p.notes || "").split("\n").length + 1))}" aria-labelledby="h-notes">${esc(p.notes || "")}</textarea>
+  </section>
+
+  <section class="sec" aria-labelledby="h-media">
+    <div class="sec-h"><h2 id="h-media">Media</h2>
+      <label class="btn filebtn">${icon("plus")}Add<input type="file" id="mediaf" accept="application/pdf,image/*,.txt" multiple></label></div>
+    <div class="status" id="media-st"></div>
+    <div class="mgrid" id="mgrid"></div>
+    <div class="stack" id="mres"></div>
+  </section>
+
+  ${(p.history || []).length ? `<section class="sec"><h2>Previous admissions</h2><div>${p.history.map(h => `<div class="ctq"><div class="src">${esc(fmtDate(h.admitted))} to ${esc(fmtDate(h.date) || "?")} · ${esc(DISPO[h.dispo] || "")}${h.ward ? " · " + esc(h.ward) : ""}</div>${esc(h.notes || h.diagnosis || "")}</div>`).join("")}</div></section>` : ""}
   <div class="row" style="margin-top:14px">
     <button class="primary" id="hobtn">${icon("doc")}Handover</button>
     <button id="copy">${icon("copy")}Copy as text</button>
@@ -1067,83 +1056,60 @@ function renderPatient(id, openSec) {
   <textarea id="copybox" class="mono" rows="10" style="margin-top:12px;font-size:13px" hidden aria-label="Summary text"></textarea>
   ${isPast(p) ? "" : `<div class="row noprint" style="margin-top:22px;border-top:1px solid var(--line);padding-top:14px"><button class="ghost danger" id="dischargebtn">Discharge patient</button></div>`}
   <p class="saved" id="saved" style="margin-top:10px">${p.updated ? "Saved " + fmtDateTime(p.updated) : ""}</p>`;
-  $("#back").onclick = async () => { clearTimeout(t); await save(p); go(openedPast && isPast(p) ? "past" : ""); };
-
-  // expand / collapse
-  const refresh = k => { const el = $("#sum-" + k); if (el) el.innerHTML = secSummary(k, p); if (k === "det" || k === "dp") $("#h-det").innerHTML = detHead(p); bindSumViewers(); };
-  const setOpen = (box, open) => { box.classList.toggle("open", open); box.querySelector(".cs-h").setAttribute("aria-expanded", String(open)); };
-  const collapse = async box => { clearTimeout(t); setOpen(box, false); refresh(box.dataset.sec); await save(p); markSaved(); };
-  $("#app").querySelectorAll(".cs").forEach(box => {
-    box.querySelector(".cs-h").onclick = () => box.classList.contains("open") ? collapse(box) : (setOpen(box, true), box.scrollIntoView({ block: "start", behavior: "smooth" }));
-    box.querySelector(".cs-save").onclick = () => { collapse(box); box.scrollIntoView({ block: "nearest" }); };
-  });
-  const bindSumViewers = () => $("#app").querySelectorAll("[data-phv]").forEach(b => b.onclick = () => openViewer(p.photos.map(x => x.src), +b.dataset.phv));
-  bindSumViewers();
-  if (openSec && openSec !== "det") setTimeout(() => $(`.cs[data-sec="${openSec}"]`)?.scrollIntoView({ block: "start" }), 50);
-
-  // summary actions
-  if ($("#dischargebtn")) $("#dischargebtn").onclick = async e => {
-    const b = e.currentTarget;
-    if (!b.dataset.sure) { b.dataset.sure = "1"; b.textContent = "Tap again to discharge"; setTimeout(() => { if (b.isConnected) { delete b.dataset.sure; b.textContent = "Discharge patient"; } }, 4000); return; }
-    p.dispo = "discharged"; p.dispoDate = todayISO(); await save(p);
-    toast(`${p.name || "Patient"} discharged and moved to Past`); go("");
-  };
-  if ($("#reactivate")) $("#reactivate").onclick = async () => {
-    p.history = [...(p.history || []), { dispo: p.dispo, note: p.dispoNote, date: p.dispoDate, ward: p.ward, admitted: p.admitted, diagnosis: p.diagnosis }];
-    p.dispo = ""; p.dispoNote = ""; p.dispoDate = ""; p.admitted = new Date().toISOString().slice(0,10);
-    await save(p); toast("Back on the active list. Update the ward and admission details."); go("edit-" + p.id);
-  };
-  $("#hobtn").onclick = () => { $("#hotext").value = handover(p); drawHoPhotos(); $("#ho").hidden = false; $("#ho").scrollIntoView({behavior: "smooth", block: "start"}); };
-  $("#hoclose").onclick = () => { $("#ho").hidden = true; };
-  const drawHoPhotos = () => {
-    $("#hophwrap").innerHTML = p.photos.length ? `<label class="row" style="gap:10px;font-size:15px"><input type="checkbox" id="hoph" style="width:22px;height:22px">Include photos</label>
-    <div id="hophotos" hidden><p class="hint" style="margin:0 0 6px">Tick the photos to send.</p><div class="row" style="gap:8px;flex-wrap:wrap">${p.photos.map((ph, i) => `<label class="phpick"><input type="checkbox" value="${i}" aria-label="Photo ${i+1}"><img src="${ph.src}" alt=""></label>`).join("")}</div></div>` : "";
-    if ($("#hoph")) $("#hoph").onchange = () => { $("#hophotos").hidden = !$("#hoph").checked; };
-  };
-  $("#hoshare").onclick = async () => {
-    const text = $("#hotext").value, bt = $("#hoshare");
-    if (bt.dataset.textonly) { delete bt.dataset.textonly; bt.innerHTML = icon("copy") + "Share";
-      try { if (navigator.share) await navigator.share({ text }); else { await navigator.clipboard.writeText(text); toast("Handover copied"); } } catch (e) { if (e.name !== "AbortError") toast("Couldn't share: " + e.message); }
-      return; }
-    const picked = $("#hoph")?.checked ? [...document.querySelectorAll('#hophotos input:checked')].map(x => +x.value) : [];
-    const files = await Promise.all(picked.map(async (i, n) => new File([await (await fetch(p.photos[i].src)).blob()], `photo-${n + 1}.jpg`, { type: "image/jpeg" })));
-    try {
-      if (files.length && navigator.canShare?.({ files })) {
-        // many apps (WhatsApp) drop the text when photos are attached: copy it too, and offer a second step for the text
-        try { navigator.clipboard.writeText(text).catch(() => {}); } catch {}
-        await navigator.share({ text, files });
-        const b = $("#hoshare"); b.textContent = "Now share the text"; b.dataset.textonly = "1";
-        toast("Text copied as well: paste it, or tap “Now share the text”");
-        return;
-      }
-      else if (navigator.share) { if (files.length) toast("This phone can't share photos from here; sharing the text"); await navigator.share({ text }); }
-      else { await navigator.clipboard.writeText(text); toast("Handover copied"); }
-    } catch (e) { if (e.name !== "AbortError") toast("Couldn't share: " + e.message); }
-  };
-  $("#hocopy").onclick = () => { const txt = $("#hotext").value;
-    navigator.clipboard.writeText(txt).then(() => toast("Handover copied"), () => { $("#hotext").focus(); $("#hotext").select(); toast("Select all and copy"); }); };
-  $("#copy").onclick = () => { const txt = summaryText(p);
-    navigator.clipboard.writeText(txt).then(() => toast("Summary copied"), () => { const b = $("#copybox"); b.value = txt; b.hidden = false; b.focus(); b.select(); toast("Select all and copy"); }); };
 
   let t;
   const markSaved = () => { const el = $("#saved"); if (el) el.textContent = "Saved " + fmtDateTime(p.updated); };
   const autosave = () => { clearTimeout(t); if ($("#saved")) $("#saved").textContent = "Saving…"; t = setTimeout(async () => { await save(p); if (!$("#saved")) return; markSaved(); }, 400); };
+  $("#back").onclick = async () => { clearTimeout(t); await save(p); go(openedPast && isPast(p) ? "past" : ""); };
   $("#app").querySelectorAll("[data-k]").forEach(el => el.addEventListener("input", () => { p[el.dataset.k] = el.value;
     if (p.unsure && p.unsure.includes(el.dataset.k)) { p.unsure = p.unsure.filter(k => k !== el.dataset.k); el.classList.remove("unsure"); }
     autosave(); }));
   (p.unsure || []).forEach(k => $("#" + k)?.classList.add("unsure"));
-  document.querySelectorAll(".dbtn").forEach(btn => btn.onclick = () => {
-    const k = btn.dataset.d;
-    if (p.dispo === k) { p.dispo = ""; p.dispoDate = ""; }
-    else { p.dispo = k; if (isPast(p)) toast("Will move to Past when you go back to the list");
-      p.dispoDate = todayISO(); }
-    document.querySelectorAll(".dbtn").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.d === p.dispo)));
-    autosave(); });
+  $("#notes").addEventListener("input", e => { const r = Math.min(18, Math.max(5, e.target.value.split("\n").length + 1)); if (e.target.rows < r) e.target.rows = r; });
+
+  // details: tap the name to expand, Save (or the name again) to fold
+  const det = $('.cs[data-sec="det"]');
+  const setOpen = o => { det.classList.toggle("open", o); det.querySelector(".cs-h").setAttribute("aria-expanded", String(o)); };
+  const fold = async () => { clearTimeout(t); setOpen(false); $("#h-det").innerHTML = detHead(p); await save(p); markSaved(); };
+  det.querySelector(".cs-h").onclick = () => det.classList.contains("open") ? fold() : setOpen(true);
+  det.querySelector(".cs-save").onclick = fold;
   $("#del").onclick = () => {
     $("#delzone").innerHTML = `<div class="confirm">Delete ${esc(p.name || "this patient")} and all their data from this device?
       <button class="danger" id="delyes">Delete</button><button id="delno">Keep</button></div>`;
     $("#delno").onclick = () => renderPatient(id, "det");
     $("#delyes").onclick = async () => { await store.del(p.id); lsSet("wpl-deleted-since", String((+lsGet("wpl-deleted-since") || 0) + 1)); patients = patients.filter(x => x.id !== p.id); toast("Patient deleted"); go(""); };
+  };
+
+  // media: thumbnails + one short summary per interpreted document
+  const drawMedia = () => {
+    $("#mgrid").innerHTML = p.media.map((m, i) => `<div class="mthumb"><button class="mopen" data-mi="${i}" aria-label="Open ${esc(m.name || "file")}">${m.thumb ? `<img src="${m.thumb}" alt="">` : `<span class="mdoc">${/pdf/.test(m.type) ? "PDF" : "TXT"}</span>`}${m.kind && m.kind !== "image" && m.kind !== "doc" ? `<span class="mtag">${MEDIA_KIND[m.kind]}</span>` : ""}</button><button class="mx" data-mx="${i}" aria-label="Remove ${esc(m.name || "file")}">×</button></div>`).join("")
+      || `<span class="hint">Nothing added yet.</span>`;
+    const res = p.media.map((m, i) => [m, i]).filter(([m]) => m.kind === "ct" || m.kind === "lab");
+    $("#mres").innerHTML = res.map(([m, i]) => `<div class="ctq"><div class="src">${[m.kind === "ct" ? (m.title || "CT") : MEDIA_KIND[m.kind], m.date ? fmtDate(m.date) : ""].filter(Boolean).map(esc).join(" · ")}</div>
+      <textarea class="msum" data-ms="${i}" rows="2" aria-label="Summary of ${esc(m.name || "file")}">${esc(m.summary || "")}</textarea></div>`).join("");
+    $("#mgrid").querySelectorAll("[data-mi]").forEach(b => b.onclick = () => openMedia(p.media[+b.dataset.mi]));
+    $("#mgrid").querySelectorAll("[data-mx]").forEach(b => b.onclick = () => {
+      if (!b.dataset.sure) { b.dataset.sure = "1"; b.textContent = "Remove?"; b.classList.add("sure"); setTimeout(() => { if (b.isConnected) { delete b.dataset.sure; b.textContent = "×"; b.classList.remove("sure"); } }, 3000); return; }
+      p.media.splice(+b.dataset.mx, 1); autosave(); drawMedia(); });
+    const fit = ta => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + 2 + "px"; };
+    $("#mres").querySelectorAll("[data-ms]").forEach(ta => { fit(ta); ta.addEventListener("input", () => fit(ta)); });
+    $("#mres").querySelectorAll("[data-ms]").forEach(ta => ta.addEventListener("input", () => { p.media[+ta.dataset.ms].summary = ta.value; autosave(); }));
+  };
+  drawMedia();
+  $("#mediaf").onchange = async e => {
+    const files = [...e.target.files]; e.target.value = ""; if (!files.length) return;
+    const st = $("#media-st");
+    const prog = (s, v) => { st.className = "status"; st.innerHTML = `${esc(s)}… <span class="bar-p"><i style="width:${Math.round(v*100)}%"></i></span>`; };
+    const found = [];
+    for (const [n, f] of files.entries()) {
+      try {
+        const m = await readMedia(f, (s, v) => prog(files.length > 1 ? `${s} (${n + 1} of ${files.length})` : s, v));
+        p.media.push(m); if (m.kind === "ct" || m.kind === "lab") found.push(MEDIA_KIND[m.kind]);
+        await save(p); drawMedia(); markSaved();
+      } catch (err) { console.error(err); toast("Couldn't open " + f.name); }
+    }
+    st.className = "status ok";
+    st.textContent = `Added ${files.length} file${files.length === 1 ? "" : "s"}.` + (found.length ? ` Summarised: ${found.join(", ")}. Check against the originals.` : "");
   };
 
   // sticker
@@ -1173,150 +1139,105 @@ function renderPatient(id, openSec) {
     }
   };
 
-  // CT
-  const drawCT = () => {
-    $("#ctlist").innerHTML = p.ct.length ? p.ct.map((c, i) => `<div class="ct" data-i="${i}">
-      <label class="f"><span>Study</span><input data-ck="title" value="${esc(c.title)}"></label>
-      ${c.found ? `<span class="ct-found">Copied from the “${esc(c.found)}” section of ${esc(c.file || "the report")}</span>` : (c.raw && !c.conclusion ? `<span class="status err">No conclusion heading found in ${esc(c.file || "the report")}. Copy the relevant part from the report text below.</span>` : "")}
-      <label class="f"><span>Conclusion</span><textarea data-ck="conclusion" rows="4">${esc(c.conclusion)}</textarea></label>
-      ${(c.pages || []).length ? `<div class="thumbs">${c.pages.map((src, j) => `<button class="thumb tap" data-pg="${j}" aria-label="Open page ${j+1}" style="padding:0"><img src="${src}" alt="CT report page ${j+1}"></button>`).join("")}</div>` : ""}
-      ${c.raw !== undefined ? `<details ${c.pasting ? "open" : ""}><summary>${c.pasting ? "Paste the full report here" : "Full report text"}</summary>
-        <textarea data-ck="raw" rows="8" class="mono" style="font-size:13px;margin-top:6px">${esc(c.raw)}</textarea>
-        <button style="margin-top:8px" data-act="refind">Find conclusion again</button></details>` : ""}
-      <div class="row">${origButtons(c, "data-orig")}<button class="ghost danger" data-act="rm">Remove report</button></div>
-    </div>`).join("") : "";
-    $("#ctlist").querySelectorAll(".ct").forEach(box => {
-      const c = p.ct[+box.dataset.i];
-      box.querySelectorAll("[data-ck]").forEach(el => el.addEventListener("input", () => { c[el.dataset.ck] = el.value; autosave(); }));
-      box.querySelector('[data-act="rm"]').onclick = () => { p.ct.splice(+box.dataset.i, 1); autosave(); drawCT(); };
-      box.querySelectorAll("[data-pg]").forEach(b => b.onclick = () => openViewer(c.pages, +b.dataset.pg));
-      box.querySelectorAll("[data-orig]").forEach(b => b.onclick = () => openOriginal(c.files[+b.dataset.orig]));
-      const rf = box.querySelector('[data-act="refind"]');
-      if (rf) rf.onclick = () => { const r = findConclusion(c.raw || ""); c.pasting = false;
-        if (r) { c.conclusion = r.text; c.found = r.label; } else { c.found = ""; } autosave(); drawCT(); };
-    });
-  };
-  drawCT();
-  $("#ctpaste").onclick = () => pasteZone($("#ct-st"), files => ctFromFile(files[0]),
-    t => ctFromFile(new File([t], "Pasted text.txt", { type: "text/plain" })));
-  $("#ctf").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) ctFromFile(f); };
-  const ctFromFile = async f => {
-    const st = $("#ct-st");
-    const prog = (s, v) => { st.className = "status"; st.innerHTML = `${esc(s)}… <span class="bar-p"><i style="width:${Math.round(v*100)}%"></i></span>`; };
-    try {
-      prog("Opening report", 0);
-      let text, pages = [];
-      const isPdf = /pdf$/i.test(f.type) || /\.pdf$/i.test(f.name), isText = /^text\//.test(f.type) || /\.txt$/i.test(f.name);
-      const original = { name: f.name, type: f.type || (isPdf ? "application/pdf" : isText ? "text/plain" : "image/jpeg"), data: await fileToDataURL(f) };
-      if (isPdf) { text = await pdfText(f, prog); pages = await pdfPages(f, 12); }
-      else if (isText) text = await f.text();
-      else { const img = await fileToImage(f); pages = [drawScaled(img, 2000).toDataURL("image/jpeg", 0.85)]; text = await ocrImage(prepForOcr(img), prog); }
-      const r = findConclusion(text);
-      const title = (text.match(/\b(CT[^\n]{0,60})/) || [])[1]?.replace(/\s+/g, " ").trim() || "CT";
-      p.ct.push({ id: uid(), file: f.name, title: title.slice(0, 70), date: reportDate(text, "ct"),
-        conclusion: r ? r.text : "", found: r ? r.label : "", raw: text.trim(), pages, files: [original] });
-      await save(p); drawCT(); markSaved();
-      st.className = r ? "status ok" : "status err";
-      st.textContent = r ? `Found the ${r.label} and copied it in.` : "Report read, but no Conclusion, Impression or Comment heading was found.";
-    } catch (err) { console.error(err); st.className = "status err"; st.textContent = "Couldn't read that file (" + (err.message || err) + "). Try a PDF or a sharper photo, or paste the text."; }
-  };
 
-  // medicines
-  patientMeds(p);
-  const drawMeds = () => {
-    const btns = medButtons(), names = btns.map(b => b.name);
-    p.meds.forEach(m => { if (!names.includes(m.name)) names.push(m.name); }); // keep meds whose button was deleted
-    const abc = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" });
-    const order = [...names.filter(n => medCat(n) === "essential").sort(abc), ...names.filter(n => medCat(n) === "supportive").sort(abc)];
-    names.splice(0, names.length, ...order);
-    $("#meds").innerHTML = names.length ? names.map((n, i) => {
-      const m = p.meds.find(x => x.name === n);
-      return `<div class="medrow${m ? " on" : ""}" data-mi="${i}">
-        <div class="medmain"><button class="medname" aria-pressed="${!!m}">${esc(n)}</button>${m && medCat(n) === "essential" ? `<button class="medday" aria-label="Change day number for ${esc(n)}">Day ${medDay(m)} <span aria-hidden="true">✎</span></button>` : ""}</div>
-        <div class="freqs" role="radiogroup" aria-label="Frequency for ${esc(n)}">${FREQS.map(f => `<button class="freq" data-f="${f}" aria-pressed="${!!m && m.freq === f}">${f}</button>`).join("")}</div>
-      </div>`; }).join("")
-      : `<span class="hint">No medicines yet. Add them in Settings › Medicines.</span>`;
-    $("#meds").querySelectorAll(".medrow").forEach(row => {
-      const n = names[+row.dataset.mi];
-      row.querySelector(".medname").onclick = () => {
-        p.meds = p.meds.some(x => x.name === n) ? p.meds.filter(x => x.name !== n) : [...p.meds, { name: n, freq: "", start: todayISO() }];
-        autosave(); drawMeds();
-      };
-      const dayBtn = row.querySelector(".medday");
-      if (dayBtn) dayBtn.onclick = () => {
-        const m = p.meds.find(x => x.name === n);
-        const inp = document.createElement("input"); inp.type = "number"; inp.min = "1"; inp.max = "365"; inp.inputMode = "numeric";
-        inp.value = medDay(m); inp.className = "meddayin"; inp.setAttribute("aria-label", "Day number for " + n);
-        dayBtn.replaceWith(inp); inp.focus(); inp.select();
-        let done = false;
-        const commit = () => { if (done) return; done = true; const d = Math.max(1, Math.min(365, parseInt(inp.value, 10) || medDay(m)));
-          const t = new Date(); t.setHours(12, 0, 0, 0); t.setDate(t.getDate() - (d - 1));
-          m.start = new Date(t.getTime() - t.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); autosave(); drawMeds(); };
-        inp.onblur = commit; inp.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); commit(); } if (e.key === "Escape") { done = true; drawMeds(); } };
-      };
-      row.querySelectorAll(".freq").forEach(fb => fb.onclick = () => {
-        let m = p.meds.find(x => x.name === n);
-        if (!m) { m = { name: n, freq: "", start: todayISO() }; p.meds.push(m); }
-        m.freq = m.freq === fb.dataset.f ? "" : fb.dataset.f; autosave(); drawMeds();
-      });
-    });
+  // summary actions
+  if ($("#dischargebtn")) $("#dischargebtn").onclick = async e => {
+    const b = e.currentTarget;
+    if (!b.dataset.sure) { b.dataset.sure = "1"; b.textContent = "Tap again to discharge"; setTimeout(() => { if (b.isConnected) { delete b.dataset.sure; b.textContent = "Discharge patient"; } }, 4000); return; }
+    p.dispo = "discharged"; p.dispoDate = todayISO(); await save(p);
+    toast(`${p.name || "Patient"} discharged and moved to Past`); go("");
   };
-  drawMeds();
-
-  // lab results
-  p.labs = p.labs || [];
-  const drawLabs = () => {
-    $("#lablist").innerHTML = p.labs.map((l, i) => `<div class="ct" data-i="${i}">
-      <label class="f"><span>Results</span><input data-lk="title" value="${esc(l.title)}"></label>
-      <label class="f"><span>Summary</span><textarea data-lk="notes" rows="${Math.min(10, Math.max(3, Math.ceil((l.notes || "").length / 32) + 1))}">${esc(l.notes)}</textarea></label>
-      <div class="thumbs">${l.pages.map((src, j) => `<button class="thumb tap" data-pg="${j}" aria-label="Open page ${j+1}" style="padding:0"><img src="${src}" alt="Lab results page ${j+1}"></button>`).join("")}</div>
-      <div class="row">${origButtons(l, "data-orig")}<button class="ghost danger" data-act="rm">Remove results</button></div></div>`).join("");
-    $("#lablist").querySelectorAll(".ct").forEach(box => {
-      const l = p.labs[+box.dataset.i];
-      box.querySelectorAll("[data-lk]").forEach(el => el.addEventListener("input", () => { l[el.dataset.lk] = el.value; autosave(); }));
-      box.querySelectorAll("[data-pg]").forEach(b => b.onclick = () => openViewer(l.pages, +b.dataset.pg));
-      box.querySelectorAll("[data-orig]").forEach(b => b.onclick = () => openOriginal(l.files[+b.dataset.orig]));
-      box.querySelector('[data-act="rm"]').onclick = () => { p.labs.splice(+box.dataset.i, 1); autosave(); drawLabs(); };
-    });
+  if ($("#reactivate")) $("#reactivate").onclick = async () => {
+    p.history = [...(p.history || []), { dispo: p.dispo, date: p.dispoDate, ward: p.ward, admitted: p.admitted, notes: (p.notes || "").split("\n")[0] }];
+    p.dispo = ""; p.dispoNote = ""; p.dispoDate = ""; p.admitted = todayISO();
+    await save(p); toast("Back on the active list. Update the ward and admission details."); go("edit-" + p.id);
   };
-  drawLabs();
-  $("#labf").onchange = e => { const files = [...e.target.files]; e.target.value = ""; if (files.length) labFromFiles(files); };
-  $("#labpaste").onclick = () => pasteZone($("#lab-st"), files => labFromFiles(files),
-    t => labFromFiles([new File([t], "Pasted text.txt", { type: "text/plain" })]));
-  const labFromFiles = async files => {
-    const st = $("#lab-st"); st.className = "status"; st.textContent = "Opening…";
+  const photos = () => p.media.filter(m => /^image\//.test(m.type));
+  const drawHoPhotos = () => {
+    const ph = photos();
+    $("#hophwrap").innerHTML = ph.length ? `<label class="row" style="gap:10px;font-size:15px"><input type="checkbox" id="hoph" style="width:22px;height:22px">Include photos</label>
+    <div id="hophotos" hidden><p class="hint" style="margin:0 0 6px">Tick the photos to send.</p><div class="row" style="gap:8px;flex-wrap:wrap">${ph.map((m, i) => `<label class="phpick"><input type="checkbox" value="${i}" aria-label="Photo ${i+1}"><img src="${m.thumb || m.data}" alt=""></label>`).join("")}</div></div>` : "";
+    if ($("#hoph")) $("#hoph").onchange = () => { $("#hophotos").hidden = !$("#hoph").checked; };
+  };
+  $("#hobtn").onclick = () => { $("#hotext").value = handover(p); drawHoPhotos(); $("#ho").hidden = false; $("#ho").scrollIntoView({behavior: "smooth", block: "start"}); };
+  $("#hoclose").onclick = () => { $("#ho").hidden = true; };
+  $("#hoshare").onclick = async () => {
+    const text = $("#hotext").value, bt = $("#hoshare");
+    if (bt.dataset.textonly) { delete bt.dataset.textonly; bt.innerHTML = icon("copy") + "Share";
+      try { if (navigator.share) await navigator.share({ text }); else { await navigator.clipboard.writeText(text); toast("Handover copied"); } } catch (e) { if (e.name !== "AbortError") toast("Couldn't share: " + e.message); }
+      return; }
+    const ph = photos(), picked = $("#hoph")?.checked ? [...document.querySelectorAll('#hophotos input:checked')].map(x => +x.value) : [];
+    const files = await Promise.all(picked.map(async (i, n) => new File([await (await fetch(ph[i].data)).blob()], `photo-${n + 1}.jpg`, { type: ph[i].type || "image/jpeg" })));
     try {
-      const pages = [], originals = []; let text = "";
-      const prog = (s, v) => { st.className = "status"; st.innerHTML = `${esc(s)}… <span class="bar-p"><i style="width:${Math.round(v*100)}%"></i></span>`; };
-      for (const f of files) {
-        originals.push({ name: f.name, type: f.type || (/\.pdf$/i.test(f.name) ? "application/pdf" : "image/jpeg"), data: await fileToDataURL(f) });
-        if (/^text\//.test(f.type)) { text += await f.text() + "\n"; continue; }
-        if (/pdf$/i.test(f.type) || /\.pdf$/i.test(f.name)) { pages.push(...await pdfPages(f, 12)); text += await pdfText(f, prog) + "\n"; }
-        else { const img = await fileToImage(f); pages.push(drawScaled(img, 2000).toDataURL("image/jpeg", 0.85)); text += await ocrImage(prepForOcr(img), prog, "6") + "\n"; }
+      if (files.length && navigator.canShare?.({ files })) {
+        // many apps (WhatsApp) drop the text when photos are attached: copy it too, and offer a second step for the text
+        try { navigator.clipboard.writeText(text).catch(() => {}); } catch {}
+        await navigator.share({ text, files });
+        bt.textContent = "Now share the text"; bt.dataset.textonly = "1";
+        toast("Text copied as well: paste it, or tap “Now share the text”");
+        return;
       }
-      const found = extractLabValues(text);
-      p.labs.push({ id: uid(), date: reportDate(text, "lab"), title: found.title, notes: found.notes, raw: text.trim(), pages, files: originals, file: files.map(f => f.name).join(", ") });
-      await save(p); drawLabs(); markSaved();
-      st.className = found.count ? "status ok" : "status err";
-      st.textContent = (pages.length ? `Added ${pages.length} page${pages.length === 1 ? "" : "s"}. ` : "Added the pasted text. ") + (found.count ? `Picked out ${found.count} result${found.count === 1 ? "" : "s"}; check them against the report.` : "No key values were recognised; type them in from the report.");
-    } catch (err) { console.error(err); st.className = "status err"; st.textContent = "Couldn't open that file (" + (err.message || err) + ")."; }
+      else if (navigator.share) { if (files.length) toast("This phone can't share photos from here; sharing the text"); await navigator.share({ text }); }
+      else { await navigator.clipboard.writeText(text); toast("Handover copied"); }
+    } catch (e) { if (e.name !== "AbortError") toast("Couldn't share: " + e.message); }
   };
+  $("#hocopy").onclick = () => { const txt = $("#hotext").value;
+    navigator.clipboard.writeText(txt).then(() => toast("Handover copied"), () => { $("#hotext").focus(); $("#hotext").select(); toast("Select all and copy"); }); };
+  $("#copy").onclick = () => { const txt = summaryText(p);
+    navigator.clipboard.writeText(txt).then(() => toast("Summary copied"), () => { const b = $("#copybox"); b.value = txt; b.hidden = false; b.focus(); b.select(); toast("Select all and copy"); }); };
+}
 
-  // photos
-  const drawPh = () => {
-    $("#phlist").innerHTML = p.photos.map((ph, i) => `<div class="thumb"><img src="${ph.src}" alt="${esc(ph.caption || "Clinical photo " + (i+1))}">
-      <button data-i="${i}" aria-label="Remove photo">Remove</button>
-      <input data-ci="${i}" value="${esc(ph.caption)}" aria-label="Photo caption"></div>`).join("");
-    $("#phlist").querySelectorAll("button").forEach(b => b.onclick = () => { p.photos.splice(+b.dataset.i, 1); autosave(); drawPh(); });
-    $("#phlist").querySelectorAll("input").forEach(inp => inp.oninput = () => { p.photos[+inp.dataset.ci].caption = inp.value; autosave(); });
-  };
-  drawPh();
-  $("#phf").onchange = async e => {
-    const files = [...e.target.files]; e.target.value = "";
-    for (const f of files) { if (p.photos.length >= 6) { toast("Six photos is the limit for one patient"); break; }
-      try { p.photos.push({ src: await compressPhoto(f), caption: "", taken: new Date().toISOString() }); } catch { toast("Couldn't open " + f.name); } }
-    await save(p); drawPh(); markSaved();
-  };
+/* ---------- media: read and interpret uploads on the phone ---------- */
+const MEDIA_KIND = { ct: "CT", lab: "Bloods / micro", image: "Photo", doc: "Document" };
+async function readMedia(f, prog) {
+  const isPdf = /pdf$/i.test(f.type) || /\.pdf$/i.test(f.name), isText = /^text\//.test(f.type) || /\.txt$/i.test(f.name);
+  const type = f.type || (isPdf ? "application/pdf" : isText ? "text/plain" : "image/jpeg");
+  const m = { id: uid(), name: f.name, type, added: new Date().toISOString(), data: "", thumb: "", pages: [], kind: "doc", summary: "", date: "", title: "" };
+  let text = "";
+  prog("Opening " + f.name, 0);
+  if (isPdf) { m.data = await fileToDataURL(f); text = await pdfText(f, prog); m.pages = await pdfPages(f, 12); m.thumb = await shrink(m.pages[0], 240); }
+  else if (isText) { text = await f.text(); m.data = await fileToDataURL(f); }
+  else { const img = await fileToImage(f); m.data = drawScaled(img, 2000).toDataURL("image/jpeg", 0.85); m.type = "image/jpeg"; m.thumb = drawScaled(img, 240).toDataURL("image/jpeg", 0.7);
+    text = await ocrImage(prepForOcr(img), prog, "6"); }
+  Object.assign(m, interpretReport(text));
+  if (m.kind === "doc" && /^image\//.test(m.type)) m.kind = "image";
+  return m;
+}
+async function shrink(src, max) { if (!src) return ""; const img = new Image(); img.src = src; await img.decode(); return drawScaled(img, max).toDataURL("image/jpeg", 0.7); }
+function interpretReport(text) {
+  // CT: Conclusion / Comment / Impression. Bloods: Na, K, urea, creatinine, WCC, Hb, platelets. Micro: culture / Gram stain.
+  const t = (text || "").trim(); if (t.length < 20) return { kind: "doc" };
+  const radiology = /\b(CT|C\.T\.|computed\s+tomograph\w*|MRI|radiolog\w*|contrast|axial|non[-\s]?contrast|angiogra\w*)\b/i.test(t);
+  const concl = findConclusion(t);
+  const labs = extractLabValues(t);
+  if (concl && (radiology || !labs.count)) {
+    const title = ((t.match(/\b(CT[^\n]{0,60})/) || [])[1] || "CT").replace(/\s+/g, " ").trim().slice(0, 70);
+    return { kind: "ct", title, summary: concl.text, date: reportDate(t, "ct") };
+  }
+  if (labs.count) return { kind: "lab", title: labs.title, summary: labs.notes, date: reportDate(t, "lab") };
+  return { kind: "doc" };
+}
+function openMedia(m) {
+  if (/^image\//.test(m.type)) return openViewer([m.data]);
+  if (/pdf/.test(m.type)) return openViewer(m.pages || [], 0, "", m);
+  return openOriginal(m);
+}
+function migrateV2(p) {
+  // older records kept diagnosis, treatment, meds, CT, labs and photos separately: fold them into Notes and Media once
+  if (p.v2) { p.media = p.media || []; return; }
+  const notes = [];
+  if (p.diagnosis) notes.push(p.diagnosis);
+  if (p.comorbid) notes.push("Comorbidities: " + p.comorbid);
+  if (p.treatment) notes.push(p.treatment);
+  if ((p.meds || []).length) notes.push("Meds: " + p.meds.map(m => typeof m === "string" ? m : medText(m)).join("; "));
+  if (p.plan) notes.push("Plan: " + p.plan);
+  if (p.dispoNote) notes.push(p.dispoNote);
+  if (!p.notes) p.notes = notes.join("\n");
+  const media = p.media || [];
+  for (const c of p.ct || []) media.push({ id: uid(), kind: "ct", name: c.file || "CT report", type: c.files?.[0]?.type || (c.pages?.length ? "application/pdf" : "text/plain"), data: c.files?.[0]?.data || "", pages: c.pages || [], thumb: c.pages?.[0] || "", date: c.date || "", title: c.title || "CT", summary: c.conclusion || "" });
+  for (const l of p.labs || []) media.push({ id: uid(), kind: "lab", name: l.file || "Lab results", type: l.files?.[0]?.type || "application/pdf", data: l.files?.[0]?.data || "", pages: l.pages || [], thumb: l.pages?.[0] || "", date: l.date || "", title: l.title || "", summary: l.notes || "" });
+  for (const ph of p.photos || []) media.push({ id: uid(), kind: "image", name: ph.caption || "Photo", type: "image/jpeg", data: ph.src, thumb: ph.src, pages: [], date: "", title: "", summary: "" });
+  p.media = media; p.v2 = true;
 }
 
 /* ---------- medicine buttons (shared by all patients, kept on this device) ---------- */
@@ -1394,13 +1315,14 @@ async function openOriginal(o) {
   if (!w) { try { await navigator.share({ files: [new File([blob], o.name || "lab-results.pdf", { type: o.type })] }); } catch {} }
 }
 const origButtons = (l, attr) => (l.files || []).map((o, j) => `<button class="ghost" ${attr}="${j}">${icon("doc")}Open ${esc(o.name || (/pdf/.test(o.type) ? "PDF" : "image"))}</button>`).join("");
-function openViewer(pages, start = 0, text = "") {
+function openViewer(pages, start = 0, text = "", orig = null) {
   const v = document.createElement("div"); v.className = "viewer"; v.setAttribute("role", "dialog"); v.setAttribute("aria-label", "Full size view");
-  v.innerHTML = `<div class="vb"><button id="vclose">Close</button></div><div class="vi">${pages.map((src, i) => `<img src="${src}" alt="Page ${i+1}" data-i="${i}">`).join("")}${text ? `<pre style="white-space:pre-wrap;background:#fff;color:#111;padding:14px;margin:0 12px;border-radius:8px;font-size:14px">${esc(text)}</pre>` : ""}</div>`;
+  v.innerHTML = `<div class="vb">${orig && orig.data ? `<button id="vorig">Open PDF</button>` : ""}<button id="vclose">Close</button></div><div class="vi">${pages.map((src, i) => `<img src="${src}" alt="Page ${i+1}" data-i="${i}">`).join("")}${text ? `<pre style="white-space:pre-wrap;background:#fff;color:#111;padding:14px;margin:0 12px;border-radius:8px;font-size:14px">${esc(text)}</pre>` : ""}</div>`;
   document.body.appendChild(v); document.body.style.overflow = "hidden";
   const close = () => { v.remove(); document.body.style.overflow = ""; removeEventListener("keydown", esc_); };
   const esc_ = e => { if (e.key === "Escape") close(); };
   addEventListener("keydown", esc_); v.querySelector("#vclose").onclick = close; v.querySelector("#vclose").focus();
+  if (v.querySelector("#vorig")) v.querySelector("#vorig").onclick = () => openOriginal(orig);
   const img = v.querySelector(`img[data-i="${start}"]`); if (img) setTimeout(() => img.scrollIntoView(), 50);
 }
 
@@ -1490,8 +1412,10 @@ function microSummary(lines) {
 
 function handoverMicro(p) {
   // handover keeps micro short: latest organism(s) only, genus abbreviated (S. aureus); no bloods, no sensitivities
-  for (const l of [...(p.labs || [])].reverse()) {
-    const line = (l.notes || "").split("\n").find(x => /^\s*micro\s*:/i.test(x)); if (!line) continue;
+  migrateV2(p);
+  const reps = p.media.filter(m => m.kind === "lab" && m.summary).sort((x, y) => (x.date || x.added || "").localeCompare(y.date || y.added || ""));
+  for (const l of reps.reverse()) {
+    const line = l.summary.split("\n").find(x => /^\s*micro\s*:/i.test(x)); if (!line) continue;
     const body = line.replace(/^\s*micro\s*:\s*/i, "");
     const cult = body.match(/culture\s*:\s*([^.(]+)/i);
     const gram = body.match(/gram\s*stain\s*:\s*([^.(]+)/i);
@@ -1539,42 +1463,37 @@ function admDay(p) {
 }
 const initials = name => (name || "").split(/[\s,]+/).filter(Boolean).map(w => w[0].toUpperCase()).join("");
 function handover(p, opts = {}) {
-  const sentence = s => { s = (s || "").trim().replace(/\s+/g, " "); if (!s) return ""; s = s[0].toUpperCase() + s.slice(1); return /[.!?]$/.test(s) ? s : s + "."; };
+  migrateV2(p);
+  const sentence = s => { s = (s || "").trim().replace(/\s+/g, " "); if (!s) return ""; s = s[0].toUpperCase() + s.slice(1); return /[.!?:]$/.test(s) ? s : s + "."; };
   const lowerFirst = s => { s = (s || "").trim().replace(/[.\s]+$/, ""); return s && !/^[A-Z]{2}/.test(s) ? s[0].toLowerCase() + s.slice(1) : s; };
   const yrs = parseInt(ageOf(p), 10);
-  // 44y old male - Name with no comorbids. Day 2 of admission in 267 for X. CT/micro. Current plan: ...
+  // 44y old male - Name, PMI. Day 2 of admission in 267. <notes>. CT: ... Micro: ...
   const who = [isNaN(yrs) ? "" : yrs + "y old", { M: "male", F: "female" }[p.sex] || ""].filter(Boolean).join(" ");
   const parts = [];
-  const nameBit = [(p.name || "").trim(), (p.mrn || "").trim()].filter(Boolean).join(", "); // name, PMI
+  const nameBit = [(p.name || "").trim(), (p.mrn || "").trim()].filter(Boolean).join(", ");
   const head = [who, nameBit].filter(Boolean).join(" - ");
-  parts.push(sentence(`${head}${head ? (p.mrn ? ", " : " ") : ""}${p.comorbid ? "known with " + lowerFirst(p.comorbid) : "with no comorbids"}`));
+  if (head) parts.push(sentence(head));
   const where = p.ward && opts.ward !== false ? "in " + p.ward.trim() : "";
-  const day = admDay(p) ? `Day ${admDay(p)} of admission` : "";
-  const line2 = [day, where, p.diagnosis ? "for " + lowerFirst(p.diagnosis) : ""].filter(Boolean).join(" ");
+  const line2 = [admDay(p) ? `Day ${admDay(p)} of admission` : "", where].filter(Boolean).join(" ");
   if (line2) parts.push(sentence(line2));
-  const meds = patientMeds(p).filter(m => medCat(m.name) === "essential").map(m => `${m.name}${m.freq ? " " + m.freq : ""} (day ${medDay(m)})`).join(", ");
-  if (meds) parts.push(sentence("On " + meds));
-  const ct = p.ct.filter(c => c.conclusion).at(-1);
-  if (ct) { const first = ct.conclusion.replace(/^\s*(\d+[.)]|[-•*])\s*/, "").split(/(?<=[.;])\s|\n/)[0]; parts.push(sentence("CT: " + lowerFirst(first))); }
+  (p.notes || "").split(/\n+/).map(x => x.replace(/^\s*[-•*]\s*/, "")).filter(x => x.trim()).forEach(x => parts.push(sentence(x)));
+  const byDate = (x, y) => (x.date || x.added || "").localeCompare(y.date || y.added || "");
+  const ct = p.media.filter(m => m.kind === "ct" && m.summary).sort(byDate).at(-1);
+  if (ct) { const first = ct.summary.replace(/^\s*(\d+[.)]|[-•*])\s*/, "").split(/(?<=[.;])\s|\n/)[0]; parts.push(sentence("CT: " + lowerFirst(first))); }
   const micro = handoverMicro(p);
   if (micro) parts.push(sentence("Micro: " + micro));
-  const planBits = [p.plan ? lowerFirst(p.plan) : "", p.dispo ? lowerFirst(DISPO[p.dispo] || p.dispo) + (p.dispoNote ? " (" + lowerFirst(p.dispoNote) + ")" : "") : p.dispoNote ? lowerFirst(p.dispoNote) : ""].filter(Boolean);
-  if (planBits.length) parts.push(sentence("Current plan: " + planBits.join("; ")));
   return parts.join(" ");
 }
 
 /* ---------- summary view ---------- */
 function summaryText(p) {
+  migrateV2(p);
   const L = [];
   L.push(`${p.name || "Unnamed"}  ${[ageOf(p), p.sex].filter(Boolean).join(" ")}`);
   L.push(`PMI ${p.mrn || "-"}${p.ward ? "  " + p.ward : ""}${p.admitted ? "  Admitted " + fmtDate(p.admitted) + " (day " + admDay(p) + " of admission)" : ""}`);
-  L.push("", "DIAGNOSIS", p.diagnosis || "-", "Comorbidities: " + (p.comorbid || "none"), "", "TREATMENT", p.treatment || "-");
-  if (patientMeds(p).length) L.push(...p.meds.map(m => "- " + medText(m)));
-  if (p.plan) L.push("", "PLAN", p.plan);
-  L.push("", "CT");
-  if (p.ct.length) p.ct.forEach(c => L.push(`${fmtDate(c.date)} ${c.title || "CT"}: ${c.conclusion || "-"}`)); else L.push("-");
-  if ((p.labs || []).length) { L.push("", "LABS"); p.labs.forEach(l => L.push(`${fmtDate(l.date)} ${l.title || "Labs"}${l.notes ? ": " + l.notes : ""}`)); }
-  if (p.dispo) L.push("", "DISPOSITION", DISPO[p.dispo] + (p.dispoNote ? ": " + p.dispoNote : ""));
+  if (p.notes) L.push("", "NOTES", p.notes);
+  const reps = p.media.filter(m => (m.kind === "ct" || m.kind === "lab") && m.summary);
+  if (reps.length) { L.push("", "RESULTS"); reps.forEach(m => L.push(`${m.date ? fmtDate(m.date) + " " : ""}${m.title || MEDIA_KIND[m.kind]}: ${m.summary}`)); }
   return L.join("\n");
 }
 
