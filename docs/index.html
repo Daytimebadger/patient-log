@@ -757,19 +757,6 @@ function blank() {
     name: "", dob: "", sex: "", mrn: "", nhs: "", ward: mainWard(), consultant: "", address: "", admitted: new Date().toISOString().slice(0,10),
     sticker: null, stickerText: "", diagnosis: "", comorbid: "", treatment: "", plan: "", meds: [], labs: [], ct: [], dispo: "", dispoNote: "", dispoDate: "", photos: [], notes: "", media: [], v2: true };
 }
-function example() {
-  const p = blank();
-  Object.assign(p, { example: true, name: "Example Patient (sample)", dob: "14/03/1961", sex: "M", mrn: "1234567", age: "64y", ward: "267 / Bed 4", 
-    admitted: new Date(Date.now() - 2 * 864e5).toISOString().slice(0,10),
-    diagnosis: "Acute appendicitis with localised perforation.",
-    treatment: "NBM, IV fluids. Consented for laparoscopic appendicectomy.", comorbid: "",
-    plan: "Laparoscopic appendicectomy tonight. Repeat FBC and CRP in the morning.",
-    meds: [{ name: "Paracetamol 1g PO", freq: "qid", start: new Date(Date.now() - 2 * 864e5).toISOString().slice(0,10) }, { name: "Ceftriaxone 1g IV", freq: "dly", start: new Date(Date.now() - 2 * 864e5).toISOString().slice(0,10) }, { name: "Metronidazole 500mg IV", freq: "tds", start: new Date(Date.now() - 864e5).toISOString().slice(0,10) }],
-    ct: [{ id: uid(), date: new Date(Date.now() - 864e5).toISOString().slice(0,10), title: "CT abdomen/pelvis with contrast", file: "sample-report.pdf",
-      conclusion: "Acute appendicitis with a small focus of extraluminal gas in keeping with localised perforation. No drainable collection. No free fluid elsewhere.", raw: "" }],
-    dispo: "awaiting", dispoNote: "On CEPOD list, expected this evening." });
-  return p;
-}
 async function load() {
   await store.ready();
   try { patients = await store.all(); } catch { patients = []; }
@@ -815,7 +802,7 @@ function renderList(past = false) {
   $("#app").innerHTML = `
     ${past ? `<p class="hint" style="margin-top:16px">Discharged and transferred patients. Open a file to read it, or bring the patient back to the active list if they return.</p>`
       : `${store.persistent ? "" : `<div class="notice" style="background:var(--red-soft)">${icon("lock")}<div><b>This browser is blocking storage, so records will be lost when you close the app.</b></div></div>`}`}
-    <input class="search" id="q" type="search" placeholder="Search name, PMI, diagnosis" value="${esc(filter.q)}" aria-label="Search patients">
+    <input class="search" id="q" type="search" placeholder="Search name, PMI, notes" value="${esc(filter.q)}" aria-label="Search patients">
     ${past ? "" : `<div class="chips" role="radiogroup" aria-label="Show patients">
       ${[["all", "All"], ["in", "Inpatients"], ["out", "Outliers"]].map(([k, v]) =>
         `<label class="chip"><input type="radio" name="df" value="${k}" ${filter.d===k?"checked":""}>${v} <span class="mono">${counts[k]}</span></label>`).join("")}
@@ -832,7 +819,7 @@ function renderList(past = false) {
       .sort((a, b) => past ? (b.dispoDate || b.updated || "").localeCompare(a.dispoDate || a.updated || "") : (b.updated || "").localeCompare(a.updated || ""));
     const card = p => `<li><button class="pcard" data-id="${p.id}">
         <span class="nm">${esc(p.name || "Unnamed patient")}</span>
-        ${p.dispo ? `<span class="pill d-${p.dispo}">${esc(DISPO[p.dispo])}${past && p.dispoDate ? " " + esc(fmtDate(p.dispoDate)) : ""}</span>` : "<span></span>"}
+        ${past && p.dispo ? `<span class="pill d-${p.dispo}">${esc(DISPO[p.dispo])}${past && p.dispoDate ? " " + esc(fmtDate(p.dispoDate)) : ""}</span>` : "<span></span>"}
         <span class="meta"><span class="mono">${p.mrn ? "PMI " + esc(p.mrn) : "No PMI"}</span>${ageOf(p) || p.sex ? `<span>${esc([ageOf(p), p.sex].filter(Boolean).join(" · "))}</span>` : ""}${p.ward ? `<span>${esc(p.ward)}</span>` : ""}${p.example ? `<span class="tag">Example</span>` : ""}</span>
         ${(p.notes || p.diagnosis) ? `<span class="dx">${esc((p.notes || p.diagnosis).split("\n")[0])}</span>` : ""}
       </button></li>`;
@@ -1011,28 +998,13 @@ async function importBackup(e) {
 function field(id, label, value, attrs = "") {
   return `<label class="f"><span>${label}</span><input id="${id}" data-k="${id}" value="${esc(value)}" ${attrs}></label>`;
 }
-const SEC_NAMES = { det: "Patient details", dx: "Diagnosis", tx: "Treatment and plan", ct: "CT reports", lab: "Lab results", dp: "Disposition", ph: "Photos" };
 function renderEdit(id, sec) { renderPatient(id, sec || "det"); }
-function secSummary(k, p) {
-  // what a collapsed section shows
-  const none = t => `<span class="none">${t}</span>`;
-  if (k === "det") return "";
-  if (k === "dx") return p.diagnosis || p.comorbid ? `${esc(p.diagnosis || "Diagnosis not recorded")}<div style="color:var(--muted);font-size:14px;margin-top:2px">Comorbidities: ${esc(p.comorbid || "none")}</div>` : none("Not recorded");
-  if (k === "tx") { const ms = patientMeds(p);
-    return p.treatment || ms.length ? esc(p.treatment || "") + (ms.length ? `<ul>${ms.map(m => `<li>${esc(m.name)}${m.freq ? " <b>" + esc(m.freq) + "</b>" : ""} ${medCat(m.name) === "essential" ? `<span style="color:var(--muted)">· Day ${medDay(m)}</span>` : ""}</li>`).join("")}</ul>` : "") : none("Not recorded"); }
-  if (k === "ct") return (p.ct || []).length ? p.ct.map(c => `<div class="ctq"><div class="src">${[c.date ? esc(fmtDate(c.date)) : "", esc(c.title || "CT")].filter(Boolean).join(" · ")}</div>${esc(c.conclusion || "No conclusion recorded")}</div>`).join("") : none("No CT reports");
-  if (k === "lab") return (p.labs || []).length ? p.labs.map(l => `<div class="ctq"><div class="src">${[l.date ? esc(fmtDate(l.date)) : "", l.title ? esc(l.title) : ""].filter(Boolean).join(" · ") || "Labs"}</div>${esc(l.notes || "No summary yet")}</div>`).join("") : none("No lab results");
-  if (k === "pl") return p.plan ? esc(p.plan) : none("Not recorded");
-  if (k === "dp") return p.dispo || p.dispoNote ? `${p.dispo ? `<b>${esc(DISPO[p.dispo] || p.dispo)}</b>` : ""}${p.dispoNote ? (p.dispo ? "\n" : "") + esc(p.dispoNote) : ""}` : none("None");
-  if (k === "ph") return p.photos.length ? `<div class="tiny">${p.photos.map((ph, i) => `<button data-phv="${i}" aria-label="Open photo ${i+1}"><img src="${ph.src}" alt="${esc(ph.caption || "Clinical photo " + (i+1))}"></button>`).join("")}</div>` : none("No photos");
-  return "";
-}
 function detHead(p) {
   return `<h1>${esc(p.name || "New patient")}</h1><div class="detmeta">
     <span>PMI <b class="mono">${esc(p.mrn || "–")}</b></span><span>${esc(ageOf(p) || "Age –")}${p.sex ? " · " + (p.sex === "M" ? "male" : "female") : ""}</span>
     ${p.ward ? `<span>${esc(p.ward)} · ${wardGroup(p) === "in" ? "Inpatient" : "Outlier"}</span>` : ""}
     ${p.admitted ? `<span>Admitted ${esc(fmtDate(p.admitted))} · day ${admDay(p)}</span>` : ""}
-    ${p.dispo ? `<span class="pill d-${p.dispo}">${esc(DISPO[p.dispo] || p.dispo)}</span>` : ""}</div>`;
+    ${isPast(p) ? `<span class="pill d-${p.dispo}">${esc(DISPO[p.dispo] || p.dispo)}${p.dispoDate ? " " + esc(fmtDate(p.dispoDate)) : ""}</span>` : ""}</div>`;
 }
 function renderSummary(id) { renderPatient(id, null); }
 function renderPatient(id, openSec) {
@@ -1257,7 +1229,8 @@ function migrateV2(p) {
   if (p.treatment) notes.push(p.treatment);
   if ((p.meds || []).length) notes.push("Meds: " + p.meds.map(m => typeof m === "string" ? m : medText(m)).join("; "));
   if (p.plan) notes.push("Plan: " + p.plan);
-  if (p.dispoNote) notes.push(p.dispoNote);
+  const dl = p.dispo && !isPast(p) ? DISPO[p.dispo] || "" : "";
+  if (dl || p.dispoNote) notes.push([dl, p.dispoNote].filter(Boolean).join(": "));
   if (!p.notes) p.notes = notes.join("\n");
   const media = p.media || [];
   for (const c of p.ct || []) media.push({ id: uid(), kind: "ct", name: c.file || "CT report", type: c.files?.[0]?.type || (c.pages?.length ? "application/pdf" : "text/plain"), data: c.files?.[0]?.data || "", pages: c.pages || [], thumb: c.pages?.[0] || "", date: c.date || "", title: c.title || "CT", summary: c.conclusion || "" });
