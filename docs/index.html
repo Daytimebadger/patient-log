@@ -1033,25 +1033,27 @@ function renderPatient(id, openSec) {
     <textarea id="notes" data-k="notes" rows="${Math.min(18, Math.max(5, (p.notes || "").split("\n").length + 1))}" aria-labelledby="h-notes">${esc(p.notes || "")}</textarea>
   </section>
 
+  <section class="sec" aria-labelledby="h-res">
+    <h2 id="h-res">Results</h2>
+    <div class="stack" id="mres"></div>
+  </section>
+
   <section class="sec" aria-labelledby="h-media">
     <div class="sec-h"><h2 id="h-media">Media</h2>
-      <label class="btn filebtn">${icon("plus")}Add<input type="file" id="mediaf" accept="application/pdf,image/*,.txt" multiple></label></div>
+      <div class="row" style="gap:8px"><button id="shmbtn">${icon("copy")}Share media</button><label class="btn filebtn">${icon("plus")}Add<input type="file" id="mediaf" accept="application/pdf,image/*,.txt" multiple></label></div></div>
     <div class="status" id="media-st"></div>
     <div class="mgrid" id="mgrid"></div>
-    <div class="stack" id="mres"></div>
+    <div class="ho" id="shm" hidden>
+      <p class="hint" style="margin:0 0 6px">Tick what to send.</p>
+      <div class="row" id="shmpick" style="gap:8px;flex-wrap:wrap"></div>
+      <div class="row"><button class="primary" id="shmgo">${icon("copy")}Share</button><button class="ghost" id="shmclose">Close</button></div>
+    </div>
   </section>
 
   ${(p.history || []).length ? `<section class="sec"><h2>Previous admissions</h2><div>${p.history.map(h => `<div class="ctq"><div class="src">${esc(fmtDate(h.admitted))} to ${esc(fmtDate(h.date) || "?")} · ${esc(DISPO[h.dispo] || "")}${h.ward ? " · " + esc(h.ward) : ""}</div>${esc(h.notes || h.diagnosis || "")}</div>`).join("")}</div></section>` : ""}
   <div class="row" style="margin-top:14px">
-    <button class="primary" id="hobtn">${icon("doc")}Handover</button>
     <button id="copy">${icon("copy")}Copy as text</button>
     ${isPast(p) ? `<button id="reactivate">${icon("back")}Bring back to active patients</button>` : ""}
-  </div>
-  <div class="ho" id="ho" hidden>
-    <div class="sec-h"><h2>Handover</h2><span class="hint">Edit before sending if needed</span></div>
-    <textarea id="hotext" aria-label="Handover text"></textarea>
-    <div id="hophwrap"></div>
-    <div class="row"><button class="primary" id="hoshare">${icon("copy")}Share</button><button id="hocopy">Copy text</button><button class="ghost" id="hoclose">Close</button></div>
   </div>
   <textarea id="copybox" class="mono" rows="10" style="margin-top:12px;font-size:13px" hidden aria-label="Summary text"></textarea>
   ${isPast(p) ? "" : `<div class="row noprint" style="margin-top:22px;border-top:1px solid var(--line);padding-top:14px"><button class="ghost danger" id="dischargebtn">Discharge patient</button></div>`}
@@ -1086,7 +1088,7 @@ function renderPatient(id, openSec) {
       || `<span class="hint">Nothing added yet.</span>`;
     const res = p.media.map((m, i) => [m, i]).filter(([m]) => m.kind === "ct" || m.kind === "lab");
     $("#mres").innerHTML = res.map(([m, i]) => `<div class="ctq"><div class="src">${[m.kind === "ct" ? (m.title || "CT") : MEDIA_KIND[m.kind], m.date ? fmtDate(m.date) : ""].filter(Boolean).map(esc).join(" · ")}</div>
-      <textarea class="msum" data-ms="${i}" rows="2" aria-label="Summary of ${esc(m.name || "file")}">${esc(m.summary || "")}</textarea></div>`).join("");
+      <textarea class="msum" data-ms="${i}" rows="2" aria-label="Summary of ${esc(m.name || "file")}">${esc(m.summary || "")}</textarea></div>`).join("") || `<span class="hint">CT and lab summaries appear here when you add reports under Media.</span>`;
     $("#mgrid").querySelectorAll("[data-mi]").forEach(b => b.onclick = () => openMedia(p.media[+b.dataset.mi]));
     $("#mgrid").querySelectorAll("[data-mx]").forEach(b => b.onclick = () => {
       if (!b.dataset.sure) { b.dataset.sure = "1"; b.textContent = "Remove?"; b.classList.add("sure"); setTimeout(() => { if (b.isConnected) { delete b.dataset.sure; b.textContent = "×"; b.classList.remove("sure"); } }, 3000); return; }
@@ -1152,37 +1154,26 @@ function renderPatient(id, openSec) {
     p.dispo = ""; p.dispoNote = ""; p.dispoDate = ""; p.admitted = todayISO();
     await save(p); toast("Back on the active list. Update the ward and admission details."); go("edit-" + p.id);
   };
-  const photos = () => p.media.filter(m => /^image\//.test(m.type));
-  const drawHoPhotos = () => {
-    const ph = photos();
-    $("#hophwrap").innerHTML = ph.length ? `<label class="row" style="gap:10px;font-size:15px"><input type="checkbox" id="hoph" style="width:22px;height:22px">Include photos</label>
-    <div id="hophotos" hidden><p class="hint" style="margin:0 0 6px">Tick the photos to send.</p><div class="row" style="gap:8px;flex-wrap:wrap">${ph.map((m, i) => `<label class="phpick"><input type="checkbox" value="${i}" aria-label="Photo ${i+1}"><img src="${m.thumb || m.data}" alt=""></label>`).join("")}</div></div>` : "";
-    if ($("#hoph")) $("#hoph").onchange = () => { $("#hophotos").hidden = !$("#hoph").checked; };
+  const drawShm = () => {
+    $("#shmpick").innerHTML = p.media.length ? p.media.map((m, i) => `<label class="phpick"><input type="checkbox" value="${i}" aria-label="${esc(m.name || "File " + (i + 1))}">${m.thumb || /^image\//.test(m.type) ? `<img src="${m.thumb || m.data}" alt="">` : `<span class="mdoc">${/pdf/.test(m.type) ? "PDF" : "TXT"}</span>`}</label>`).join("") : `<span class="hint">Nothing added yet.</span>`;
   };
-  $("#hobtn").onclick = () => { $("#hotext").value = handover(p); drawHoPhotos(); $("#ho").hidden = false; $("#ho").scrollIntoView({behavior: "smooth", block: "start"}); };
-  $("#hoclose").onclick = () => { $("#ho").hidden = true; };
-  $("#hoshare").onclick = async () => {
-    const text = $("#hotext").value, bt = $("#hoshare");
-    if (bt.dataset.textonly) { delete bt.dataset.textonly; bt.innerHTML = icon("copy") + "Share";
-      try { if (navigator.share) await navigator.share({ text }); else { await navigator.clipboard.writeText(text); toast("Handover copied"); } } catch (e) { if (e.name !== "AbortError") toast("Couldn't share: " + e.message); }
-      return; }
-    const ph = photos(), picked = $("#hoph")?.checked ? [...document.querySelectorAll('#hophotos input:checked')].map(x => +x.value) : [];
-    const files = await Promise.all(picked.map(async (i, n) => new File([await (await fetch(ph[i].data)).blob()], `photo-${n + 1}.jpg`, { type: ph[i].type || "image/jpeg" })));
+  $("#shmbtn").onclick = () => { const box = $("#shm"); if (!box.hidden) { box.hidden = true; return; } drawShm(); box.hidden = false; box.scrollIntoView({behavior: "smooth", block: "nearest"}); };
+  $("#shmclose").onclick = () => { $("#shm").hidden = true; };
+  $("#shmgo").onclick = async () => {
+    const picked = [...document.querySelectorAll("#shmpick input:checked")].map(x => p.media[+x.value]);
+    if (!picked.length) { toast("Tick at least one item"); return; }
+    const ext = t => /pdf/.test(t) ? "pdf" : /png/.test(t) ? "png" : /^image/.test(t) ? "jpg" : "txt";
+    const files = await Promise.all(picked.map(async (m, n) => {
+      const src = m.data || m.thumb, type = m.data ? (m.type || "application/octet-stream") : "image/jpeg";
+      let name = (m.name || "").replace(/[\\/:*?"<>|]/g, "").trim() || `file-${n + 1}`;
+      if (!/\.[a-z0-9]{2,4}$/i.test(name) || /^image\//.test(type)) name = name.replace(/\.[a-z0-9]{2,4}$/i, "") + "." + ext(type);
+      return new File([await (await fetch(src)).blob()], name, { type });
+    }));
     try {
-      if (files.length && navigator.canShare?.({ files })) {
-        // many apps (WhatsApp) drop the text when photos are attached: copy it too, and offer a second step for the text
-        try { navigator.clipboard.writeText(text).catch(() => {}); } catch {}
-        await navigator.share({ text, files });
-        bt.textContent = "Now share the text"; bt.dataset.textonly = "1";
-        toast("Text copied as well: paste it, or tap “Now share the text”");
-        return;
-      }
-      else if (navigator.share) { if (files.length) toast("This phone can't share photos from here; sharing the text"); await navigator.share({ text }); }
-      else { await navigator.clipboard.writeText(text); toast("Handover copied"); }
+      if (navigator.canShare?.({ files })) await navigator.share({ files });
+      else toast("This phone can't share files from here");
     } catch (e) { if (e.name !== "AbortError") toast("Couldn't share: " + e.message); }
   };
-  $("#hocopy").onclick = () => { const txt = $("#hotext").value;
-    navigator.clipboard.writeText(txt).then(() => toast("Handover copied"), () => { $("#hotext").focus(); $("#hotext").select(); toast("Select all and copy"); }); };
   $("#copy").onclick = () => { const txt = summaryText(p);
     navigator.clipboard.writeText(txt).then(() => toast("Summary copied"), () => { const b = $("#copybox"); b.value = txt; b.hidden = false; b.focus(); b.select(); toast("Select all and copy"); }); };
 }
